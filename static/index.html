@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MahZeh?! — Scan. Translate. Understand.</title>
+  <meta name="description" content="Upload Hebrew documents and get instant English translations, summaries, and action items. Built for olim."/>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>"/>
+  <style>
+    :root{--navy:#1B3A5C;--blue:#2E86AB;--light-blue:#E8F4FD;--green:#27AE60;--green-bg:#EBF5EC;--orange:#E67E22;--orange-bg:#FEF5E7;--red:#E74C3C;--red-bg:#FDEDEC;--dark:#1A1A2E;--mid:#5A5A7A;--light:#F8FAFC;--white:#FFF;--border:#E2E8F0}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--light);color:var(--dark);line-height:1.6}
+
+    .topbar{background:var(--navy);color:var(--white);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+    .topbar h1{font-size:24px;font-weight:800}
+    .topbar h1 span{color:var(--orange)}
+    .topbar-right{display:flex;align-items:center;gap:12px}
+
+    .user-pill{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.12);padding:6px 14px;border-radius:20px;font-size:13px}
+    .user-pill img{width:24px;height:24px;border-radius:50%}
+    .auth-btn{padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.3);background:transparent;color:var(--white);transition:all .2s}
+    .auth-btn:hover{background:rgba(255,255,255,.15)}
+    .auth-btn.signout{font-size:11px;padding:5px 12px;opacity:.7}
+
+    .container{max-width:820px;margin:0 auto;padding:24px}
+
+    /* Auth Gate */
+    .auth-gate{text-align:center;padding:60px 24px}
+    .auth-gate h2{font-size:28px;color:var(--navy);margin-bottom:8px}
+    .auth-gate p{color:var(--mid);font-size:16px;margin-bottom:32px}
+    .google-btn{display:inline-flex;align-items:center;gap:10px;padding:14px 28px;background:var(--white);border:2px solid var(--border);border-radius:12px;font-size:16px;font-weight:600;color:var(--dark);cursor:pointer;transition:all .2s}
+    .google-btn:hover{border-color:var(--blue);box-shadow:0 2px 12px rgba(0,0,0,.08)}
+    .google-btn svg{width:20px;height:20px}
+    .auth-gate .skip-link{display:block;margin-top:16px;font-size:13px;color:var(--mid);cursor:pointer;text-decoration:underline}
+
+    /* Upload */
+    .upload-area{border:2px dashed var(--blue);border-radius:16px;padding:48px 24px;text-align:center;background:var(--white);cursor:pointer;transition:all .2s;margin-bottom:24px}
+    .upload-area:hover,.upload-area.dragover{border-color:var(--orange);background:var(--orange-bg)}
+    .upload-icon{font-size:48px;margin-bottom:12px}
+    .upload-area h2{font-size:22px;color:var(--navy);margin-bottom:6px}
+    .upload-area p{color:var(--mid);font-size:15px}
+    .upload-area .or{margin:16px 0;color:var(--mid);font-size:13px}
+    .upload-btn{display:inline-block;padding:12px 28px;background:var(--blue);color:white;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
+    .upload-btn:hover{background:var(--navy)}
+    input[type=file]{display:none}
+
+    /* Processing */
+    .processing-state{text-align:center;padding:60px 24px;display:none}
+    .processing-state.active{display:block}
+    .spinner{width:48px;height:48px;border:4px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .processing-state h3{color:var(--navy);font-size:20px;margin-bottom:8px}
+    .processing-state p{color:var(--mid);font-size:14px}
+    .step-indicator{display:flex;justify-content:center;gap:8px;margin-top:20px}
+    .step-dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:background .3s}
+    .step-dot.active{background:var(--blue)}
+    .step-dot.done{background:var(--green)}
+
+    /* Error */
+    .error-box{background:var(--red-bg);border:1px solid #F5C6CB;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:none}
+    .error-box.active{display:block}
+    .error-box h4{color:var(--red);margin-bottom:6px}
+    .error-box p{color:var(--dark);font-size:14px}
+    .error-box .retry-btn{margin-top:12px;padding:8px 20px;background:var(--red);color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+
+    /* Results */
+    .results{display:none}
+    .results.active{display:block}
+    .status-bar{display:flex;align-items:center;gap:8px;background:var(--green-bg);border:1px solid #C3E6CB;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:14px;color:var(--green);font-weight:600}
+    .status-bar .time{margin-left:auto;font-weight:400;color:var(--mid);font-size:13px}
+    .status-bar .saved-badge{background:var(--blue);color:white;padding:2px 8px;border-radius:6px;font-size:11px;margin-left:8px}
+
+    .new-scan-btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;background:var(--white);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;color:var(--blue);cursor:pointer;margin-bottom:16px}
+    .new-scan-btn:hover{background:var(--light-blue)}
+
+    .card{background:var(--white);border:1px solid var(--border);border-radius:12px;margin-bottom:16px;overflow:hidden}
+    .card-header{padding:14px 18px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+    .card-body{padding:18px}
+
+    .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;margin:3px}
+    .badge-type{background:var(--light-blue);color:var(--blue)}
+    .badge-subtype{background:#F0E6FF;color:#7C3AED}
+    .badge-issuer{background:#FEF3C7;color:#92400E}
+    .badge-urgency-low{background:var(--green-bg);color:var(--green)}
+    .badge-urgency-medium{background:var(--orange-bg);color:var(--orange)}
+    .badge-urgency-high{background:var(--red-bg);color:var(--red)}
+    .badge-confidence{background:var(--light);color:var(--mid)}
+
+    .summary-box{background:var(--light-blue);border-radius:10px;padding:16px 18px;font-size:15px;line-height:1.7}
+    .details-grid{display:grid;grid-template-columns:140px 1fr;gap:0}
+    .detail-label{font-size:13px;font-weight:600;color:var(--mid);padding:8px 0;border-bottom:1px solid var(--border)}
+    .detail-value{font-size:13px;color:var(--dark);padding:8px 0;border-bottom:1px solid var(--border)}
+
+    .action-list{list-style:none}
+    .action-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:flex-start}
+    .action-item:last-child{border-bottom:none}
+    .action-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+    .action-icon.deadline{background:var(--red-bg)}.action-icon.payment{background:var(--orange-bg)}.action-icon.contact{background:var(--light-blue)}.action-icon.visit{background:#F0E6FF}.action-icon.document{background:#FEF3C7}.action-icon.info{background:var(--green-bg)}
+    .action-title{font-weight:600;font-size:14px}
+    .action-desc{font-size:13px;color:var(--mid);margin-top:2px}
+    .action-meta{font-size:12px;color:var(--blue);margin-top:4px;font-weight:500}
+
+    .translation-toggle{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:var(--light);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;color:var(--blue);cursor:pointer;margin-bottom:12px}
+    .translation-toggle:hover{background:var(--light-blue)}
+    .translation-text{font-size:14px;line-height:1.8;white-space:pre-wrap;display:none}
+    .translation-text.visible{display:block}
+
+    /* History */
+    .history-section{margin-top:8px}
+    .history-section h3{font-size:16px;color:var(--navy);margin-bottom:12px}
+    .history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+    .history-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;cursor:pointer;transition:all .2s}
+    .history-card:hover{border-color:var(--blue);box-shadow:0 2px 8px rgba(0,0,0,.06)}
+    .hc-type{font-size:12px;font-weight:600;color:var(--blue);text-transform:uppercase;margin-bottom:4px}
+    .hc-title{font-size:15px;font-weight:600;color:var(--dark);margin-bottom:4px}
+    .hc-issuer{font-size:13px;color:var(--mid);margin-bottom:8px}
+    .hc-meta{font-size:11px;color:var(--mid)}
+    .hc-urgency{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-top:6px}
+
+    .empty-state{text-align:center;padding:40px;color:var(--mid)}
+    .empty-state .empty-icon{font-size:48px;margin-bottom:12px}
+
+    /* WhatsApp banner */
+    .wa-banner{background:linear-gradient(135deg,#25D366,#128C7E);border-radius:12px;padding:20px;color:white;margin-bottom:20px;display:flex;align-items:center;gap:16px}
+    .wa-banner .wa-icon{font-size:36px}
+    .wa-banner h3{font-size:16px;margin-bottom:4px}
+    .wa-banner p{font-size:13px;opacity:.9}
+    .wa-banner .wa-number{font-size:18px;font-weight:700;margin-top:6px;letter-spacing:1px}
+
+    @media(max-width:600px){.container{padding:16px}.upload-area{padding:32px 16px}.details-grid{grid-template-columns:1fr}.detail-label{border-bottom:none;padding-bottom:0}.history-grid{grid-template-columns:1fr}.wa-banner{flex-direction:column;text-align:center}}
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>MahZeh<span>?!</span></h1>
+  <div class="topbar-right" id="topbarRight">
+    <button class="auth-btn" id="loginBtn" onclick="signIn()" style="display:none">Sign In</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Auth Gate (shown if Supabase is configured and user not logged in) -->
+  <div id="authGate" style="display:none" class="auth-gate">
+    <div style="font-size:64px;margin-bottom:16px">📄</div>
+    <h2>Welcome to MahZeh?!</h2>
+    <p>Sign in to save your document history and get personalized summaries.</p>
+    <button class="google-btn" onclick="signIn()">
+      <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Sign in with Google
+    </button>
+    <div class="skip-link" onclick="skipAuth()">Continue without signing in</div>
+  </div>
+
+  <!-- Main App (shown when authed or skipped) -->
+  <div id="mainApp" style="display:none">
+
+    <!-- Upload Area -->
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <div class="upload-icon">&#128196;</div>
+      <h2>Upload a Hebrew Document</h2>
+      <p>Drop a PDF here, or click to browse</p>
+      <div class="or">or</div>
+      <button class="upload-btn" onclick="event.stopPropagation(); document.getElementById('fileInput').click()">Choose File</button>
+      <input type="file" id="fileInput" accept=".pdf"/>
+    </div>
+
+    <!-- WhatsApp Banner -->
+    <div class="wa-banner" id="waBanner" style="display:none">
+      <div class="wa-icon">&#128172;</div>
+      <div>
+        <h3>Also on WhatsApp!</h3>
+        <p>Send a photo of any Hebrew document and get a summary back instantly.</p>
+        <div class="wa-number" id="waNumber"></div>
+      </div>
+    </div>
+
+    <!-- Processing -->
+    <div class="processing-state" id="processingState">
+      <div class="spinner"></div>
+      <h3 id="processingTitle">Reading your document...</h3>
+      <p id="processingDesc">Extracting Hebrew text from PDF</p>
+      <div class="step-indicator"><div class="step-dot active" id="step1"></div><div class="step-dot" id="step2"></div><div class="step-dot" id="step3"></div></div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-box" id="errorBox">
+      <h4>Something went wrong</h4>
+      <p id="errorMessage"></p>
+      <button class="retry-btn" onclick="resetUI()">Try Again</button>
+    </div>
+
+    <!-- Results -->
+    <div class="results" id="results">
+      <style>
+        .copy-all-btn { display:block; width:100%; padding:16px; background:var(--primary); color:white; border:none; border-radius:12px; font-size:18px; font-weight:600; cursor:pointer; margin-bottom:16px; transition:all .2s; }
+        .copy-all-btn:hover { background:#e85d26; transform:translateY(-1px); }
+        .copy-all-btn.copied { background:var(--green); }
+        .scan-another-btn { display:block; width:100%; padding:14px; background:white; color:var(--text); border:2px solid var(--border); border-radius:12px; font-size:16px; font-weight:500; cursor:pointer; margin-bottom:20px; transition:all .2s; }
+        .scan-another-btn:hover { border-color:var(--primary); color:var(--primary); }
+        .clean-output { background:white; border:1px solid var(--border); border-radius:12px; padding:24px; font-family:'Inter',system-ui,sans-serif; font-size:15px; line-height:1.7; color:var(--text); white-space:pre-wrap; word-wrap:break-word; max-height:80vh; overflow-y:auto; }
+        .clean-output .doc-header { font-size:13px; color:#888; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+        .clean-output .doc-title { font-size:20px; font-weight:700; color:var(--text); margin-bottom:2px; }
+        .clean-output .doc-issuer { font-size:15px; color:#666; margin-bottom:16px; }
+        .clean-output .doc-urgency { display:inline-block; padding:3px 10px; border-radius:20px; font-size:12px; font-weight:600; text-transform:uppercase; margin-bottom:16px; }
+        .clean-output .urgency-low { background:#e8f5e9; color:#2e7d32; }
+        .clean-output .urgency-medium { background:#fff3e0; color:#ef6c00; }
+        .clean-output .urgency-high { background:#ffebee; color:#c62828; }
+        .clean-output .section-label { font-size:14px; font-weight:700; color:var(--primary); text-transform:uppercase; letter-spacing:0.5px; margin-top:20px; margin-bottom:8px; border-bottom:2px solid var(--primary); padding-bottom:4px; display:inline-block; }
+        .clean-output .summary-text { font-size:16px; line-height:1.8; margin-bottom:8px; }
+        .clean-output .detail-row { display:flex; gap:8px; padding:4px 0; border-bottom:1px solid #f0f0f0; }
+        .clean-output .detail-label { font-weight:600; min-width:140px; color:#555; }
+        .clean-output .detail-value { color:var(--text); }
+        .clean-output .action-row { padding:6px 0; }
+        .clean-output .translation-block { margin-top:8px; font-size:15px; line-height:1.8; }
+      </style>
+      <div class="status-bar">
+        <span>&#10003;</span> Document processed successfully
+        <span id="savedBadge" class="saved-badge" style="display:none">Saved</span>
+        <span class="time" id="processingTime"></span>
+      </div>
+      <button class="new-scan-btn" onclick="resetUI()">&#8592; Scan Another Document</button>
+
+      <button class="copy-all-btn" id="copyAllBtn" onclick="copyAll()">&#128203; Copy Everything to Clipboard</button>
+      <button class="scan-another-btn" onclick="resetUI()">Scan Another Document</button>
+      <div class="clean-output" id="cleanOutput"></div>
+
+      <!-- Report Issue Section -->
+      <style>
+        .report-section { margin-top:16px; border-top:1px solid #eee; padding-top:16px; }
+        .report-toggle { background:none; border:none; color:#999; font-size:13px; cursor:pointer; padding:4px 0; }
+        .report-toggle:hover { color:var(--primary); }
+        .report-form { display:none; margin-top:12px; background:#fafafa; border:1px solid #eee; border-radius:10px; padding:16px; }
+        .report-form.visible { display:block; }
+        .report-form label { font-size:13px; font-weight:600; color:#555; display:block; margin-bottom:4px; }
+        .report-form select, .report-form textarea { width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:14px; font-family:inherit; margin-bottom:12px; box-sizing:border-box; }
+        .report-form textarea { height:100px; resize:vertical; }
+        .report-submit { background:var(--primary); color:white; border:none; padding:10px 24px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; }
+        .report-submit:hover { background:#e85d26; }
+        .report-success { display:none; padding:12px; background:#e8f5e9; color:#2e7d32; border-radius:8px; font-size:14px; text-align:center; margin-top:8px; }
+      </style>
+      <div class="report-section">
+        <button class="report-toggle" onclick="toggleReport()">&#9888; Translation not accurate? Report an issue</button>
+        <div class="report-form" id="reportForm">
+          <label>What's wrong?</label>
+          <select id="reportType">
+            <option value="wrong_translation">Translation is wrong or garbled</option>
+            <option value="wrong_names">Names or numbers are incorrect</option>
+            <option value="missing_content">Missing pages or sections</option>
+            <option value="wrong_classification">Wrong document type or summary</option>
+            <option value="other">Other issue</option>
+          </select>
+          <label>Tell us more (what's wrong and what it should say)</label>
+          <textarea id="reportDetails" placeholder="e.g. 'Section 3.1 says Givat Shmuel but the document is about Binyamina' or 'The company name should be Ferncroft not Fern Boff'"></textarea>
+          <button class="report-submit" onclick="submitReport()">Send Report</button>
+          <div class="report-success" id="reportSuccess">Thanks! We'll use this to improve MahZeh.</div>
+        </div>
+      </div>
+      <!-- hidden elements kept for data -->
+      <div id="classificationBadges" style="display:none"></div>
+      <div id="summaryText" style="display:none"></div>
+      <div id="keyDetails" style="display:none"></div>
+      <ul id="actionItems" style="display:none"></ul>
+      <div id="translationText" style="display:none"></div>
+    </div>
+
+    <!-- Document History -->
+    <div class="history-section" id="historySection" style="display:none">
+      <h3>&#128218; Your Documents</h3>
+      <div id="historyGrid" class="history-grid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Supabase JS (loaded from CDN, non-blocking) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" async onerror="console.log('Supabase CDN unavailable, running without auth')"></script>
+
+<script>
+// ========================================
+// Config & State
+// ========================================
+let supabase = null;
+let currentUser = null;
+let startTime = 0;
+let serverConfig = {};
+
+// ========================================
+// Init
+// ========================================
+async function init() {
+  // Check server health
+  try {
+    const resp = await fetch('/api/health');
+    serverConfig = await resp.json();
+  } catch(e) {
+    serverConfig = { api_key_set: false, supabase_configured: false, whatsapp_configured: false };
+  }
+
+  // Always show the main app first
+  showMainApp();
+
+  // Init Supabase if configured and SDK loaded
+  if (serverConfig.supabase_configured && window.supabase && window.SUPABASE_URL) {
+    try {
+      supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        currentUser = session.user;
+        updateUserUI();
+        loadHistory();
+      }
+    } catch(e) {
+      console.log('Supabase init failed, running without auth:', e);
+    }
+  }
+
+  // Show WhatsApp banner if configured
+  if (serverConfig.whatsapp_configured) {
+    document.getElementById('waBanner').style.display = 'flex';
+  }
+
+  // Warn if no API key
+  if (!serverConfig.api_key_set) {
+    showError('Server is running but ANTHROPIC_API_KEY is not set. Stop the server (Ctrl+C), run: export ANTHROPIC_API_KEY=your-key, then restart with: python3 server.py');
+  }
+}
+
+function showMainApp() {
+  document.getElementById('authGate').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+}
+
+function skipAuth() {
+  showMainApp();
+}
+
+// ========================================
+// Auth
+// ========================================
+async function signIn() {
+  if (!supabase) {
+    // If Supabase isn't initialized, just skip auth
+    showMainApp();
+    return;
+  }
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin }
+  });
+  if (error) console.error('Sign in error:', error);
+}
+
+async function signOut() {
+  if (supabase) await supabase.auth.signOut();
+  currentUser = null;
+  updateUserUI();
+  document.getElementById('authGate').style.display = 'block';
+  document.getElementById('mainApp').style.display = 'none';
+}
+
+function updateUserUI() {
+  const topbar = document.getElementById('topbarRight');
+  if (currentUser) {
+    const name = currentUser.user_metadata?.full_name || currentUser.email || 'User';
+    const avatar = currentUser.user_metadata?.avatar_url;
+    topbar.innerHTML = `
+      <div class="user-pill">
+        ${avatar ? `<img src="${avatar}" alt=""/>` : ''}
+        <span>${name}</span>
+      </div>
+      <button class="auth-btn signout" onclick="signOut()">Sign Out</button>
+    `;
+  } else {
+    topbar.innerHTML = `<button class="auth-btn" onclick="signIn()">Sign In</button>`;
+  }
+}
+
+function getAuthToken() {
+  if (!supabase) return null;
+  try {
+    const session = supabase.auth.session?.();
+    return session?.access_token || null;
+  } catch(e) { return null; }
+}
+
+// ========================================
+// File Upload
+// ========================================
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+
+['dragenter','dragover'].forEach(e => uploadArea.addEventListener(e, ev => { ev.preventDefault(); uploadArea.classList.add('dragover'); }));
+['dragleave','drop'].forEach(e => uploadArea.addEventListener(e, ev => { ev.preventDefault(); uploadArea.classList.remove('dragover'); }));
+uploadArea.addEventListener('drop', ev => {
+  const f = ev.dataTransfer.files;
+  if (f.length && f[0].type === 'application/pdf') processFile(f[0]);
+});
+fileInput.addEventListener('change', ev => { if(ev.target.files.length) processFile(ev.target.files[0]); });
+
+async function processFile(file) {
+  startTime = Date.now();
+  uploadArea.style.display = 'none';
+  document.getElementById('historySection').style.display = 'none';
+  document.getElementById('waBanner').style.display = 'none';
+  document.getElementById('errorBox').classList.remove('active');
+  document.getElementById('results').classList.remove('active');
+
+  const proc = document.getElementById('processingState');
+  proc.classList.add('active');
+  updateStep(1, 'Uploading document...', `Sending ${file.name} to Claude`);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    setTimeout(() => updateStep(1, 'Step 1: Classifying...', 'Claude is reading the Hebrew and identifying the document type'), 3000);
+    setTimeout(() => updateStep(2, 'Step 2: Translating...', 'Claude is translating every page — this takes 1-3 minutes for accuracy'), 15000);
+    setTimeout(() => updateStep(3, 'Still translating...', 'Dense Hebrew legal docs take time — accuracy over speed'), 60000);
+
+    const headers = {};
+    // Add auth token if available
+    if (supabase) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+      } catch(e) {}
+    }
+
+    const resp = await fetch('/api/process', { method: 'POST', body: formData, headers });
+    const data = await resp.json();
+    proc.classList.remove('active');
+
+    if (data.error) { showError(data.error); return; }
+    if (data.success && data.result) {
+      showResults(data.result, file.name, data.saved);
+    } else {
+      showError('Unexpected response');
+    }
+  } catch(err) {
+    proc.classList.remove('active');
+    showError(`Network error: ${err.message}. Is the server running?`);
+  }
+}
+
+function updateStep(n, title, desc) {
+  document.getElementById('processingTitle').textContent = title;
+  document.getElementById('processingDesc').textContent = desc;
+  for(let i=1;i<=3;i++){const d=document.getElementById('step'+i);d.className='step-dot';if(i<n)d.classList.add('done');else if(i===n)d.classList.add('active');}
+}
+
+// ========================================
+// Results
+// ========================================
+// Store result for copy
+let lastResult = null;
+
+function showResults(r, filename, saved) {
+  lastResult = r;
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  document.getElementById('processingTime').textContent = `Processed in ${elapsed}s`;
+  document.getElementById('savedBadge').style.display = saved ? 'inline' : 'none';
+
+  // Build one clean, readable output
+  const out = document.getElementById('cleanOutput');
+  const urgClass = r.urgency === 'high' ? 'urgency-high' : r.urgency === 'medium' ? 'urgency-medium' : 'urgency-low';
+
+  let html = '';
+  html += `<div class="doc-header">${(r.doc_type||'document').replace('_',' ')}</div>`;
+  html += `<div class="doc-title">${r.doc_subtype||'Document'}</div>`;
+  html += `<div class="doc-issuer">${r.issuing_body||''}</div>`;
+  html += `<span class="doc-urgency ${urgClass}">${r.urgency||'low'} urgency</span>`;
+  if (r.pages_detected) html += `<span style="margin-left:8px;font-size:12px;color:#888">${r.pages_detected}</span>`;
+
+  // Summary
+  html += `<div class="section-label">What Is This?</div>`;
+  html += `<div class="summary-text">${r.summary||''}</div>`;
+
+  // Key Details
+  if (r.key_details && r.key_details.length) {
+    html += `<div class="section-label">Key Details</div>`;
+    r.key_details.forEach(d => {
+      html += `<div class="detail-row"><span class="detail-label">${d.label}</span><span class="detail-value">${d.value}</span></div>`;
+    });
+  }
+
+  // Action Items
+  if (r.action_items && r.action_items.length) {
+    html += `<div class="section-label">What You Need To Do</div>`;
+    r.action_items.forEach((a, i) => {
+      let line = `<div class="action-row"><strong>${i+1}. ${a.title}</strong> — ${a.description}`;
+      if (a.due_date) line += ` <em>(Deadline: ${a.due_date})</em>`;
+      if (a.amount_nis) line += ` <em>(${Number(a.amount_nis).toLocaleString()} NIS)</em>`;
+      line += `</div>`;
+      html += line;
+    });
+  }
+
+  // Full Translation — shown by default, not hidden!
+  if (r.translation) {
+    html += `<div class="section-label">Full English Translation</div>`;
+    let trans = (r.translation||'')
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^(---.*?---)/gm, '<hr style="margin:20px 0;border-color:var(--primary)"><strong style="color:var(--primary)">$1</strong>')
+      .replace(/\n/g,'<br>');
+    html += `<div class="translation-block">${trans}</div>`;
+  }
+
+  out.innerHTML = html;
+  document.getElementById('results').classList.add('active');
+}
+
+function copyAll() {
+  if (!lastResult) return;
+  const r = lastResult;
+  let text = '';
+  text += `${(r.doc_type||'').toUpperCase().replace('_',' ')}\n`;
+  text += `${r.doc_subtype||'Document'}\n`;
+  text += `Issued by: ${r.issuing_body||'Unknown'}\n`;
+  text += `Urgency: ${r.urgency||'low'}\n\n`;
+
+  text += `=== WHAT IS THIS? ===\n${r.summary||''}\n\n`;
+
+  if (r.key_details && r.key_details.length) {
+    text += `=== KEY DETAILS ===\n`;
+    r.key_details.forEach(d => { text += `${d.label}: ${d.value}\n`; });
+    text += `\n`;
+  }
+
+  if (r.action_items && r.action_items.length) {
+    text += `=== WHAT YOU NEED TO DO ===\n`;
+    r.action_items.forEach((a, i) => {
+      text += `${i+1}. ${a.title} — ${a.description}`;
+      if (a.due_date) text += ` (Deadline: ${a.due_date})`;
+      if (a.amount_nis) text += ` (${Number(a.amount_nis).toLocaleString()} NIS)`;
+      text += `\n`;
+    });
+    text += `\n`;
+  }
+
+  if (r.translation) {
+    text += `=== FULL ENGLISH TRANSLATION ===\n${r.translation}\n`;
+  }
+
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyAllBtn');
+    btn.innerHTML = '&#10003; Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.innerHTML = '&#128203; Copy Everything to Clipboard'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function toggleTranslation() {}
+
+function toggleReport() {
+  const form = document.getElementById('reportForm');
+  form.classList.toggle('visible');
+  document.getElementById('reportSuccess').style.display = 'none';
+}
+
+function submitReport() {
+  const type = document.getElementById('reportType').value;
+  const details = document.getElementById('reportDetails').value;
+  if (!details.trim()) { alert('Please describe the issue'); return; }
+
+  const report = {
+    type: type,
+    details: details,
+    timestamp: new Date().toISOString(),
+    result: lastResult
+  };
+
+  // Send to server
+  fetch('/api/report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report)
+  }).catch(() => {});
+
+  // Also email it
+  const subject = encodeURIComponent(`MahZeh Issue: ${type}`);
+  const body = encodeURIComponent(`Issue: ${type}\n\nDetails: ${details}\n\nDocument: ${lastResult?.doc_subtype || 'Unknown'}\nConfidence: ${lastResult?.confidence || '?'}%\nTime: ${new Date().toLocaleString()}`);
+  window.open(`mailto:rabbisnir@gmail.com?subject=${subject}&body=${body}`, '_blank');
+
+  document.getElementById('reportSuccess').style.display = 'block';
+  document.getElementById('reportDetails').value = '';
+  setTimeout(() => { document.getElementById('reportForm').classList.remove('visible'); }, 3000);
+}
+
+function showError(msg) {
+  document.getElementById('errorMessage').textContent = msg;
+  document.getElementById('errorBox').classList.add('active');
+  uploadArea.style.display = 'block';
+}
+
+function resetUI() {
+  document.getElementById('results').classList.remove('active');
+  document.getElementById('errorBox').classList.remove('active');
+  document.getElementById('processingState').classList.remove('active');
+  uploadArea.style.display = 'block';
+  if(serverConfig.whatsapp_configured) document.getElementById('waBanner').style.display = 'flex';
+  fileInput.value = '';
+  if(currentUser) {
+    document.getElementById('historySection').style.display = 'block';
+    loadHistory();
+  }
+}
+
+// ========================================
+// History
+// ========================================
+async function loadHistory() {
+  if (!currentUser) return;
+  const section = document.getElementById('historySection');
+  section.style.display = 'block';
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const resp = await fetch('/api/documents', { headers: { 'Authorization': `Bearer ${session.access_token}` } });
+    const data = await resp.json();
+
+    const grid = document.getElementById('historyGrid');
+    if (!data.documents || data.documents.length === 0) {
+      grid.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128218;</div><p>Your scanned documents will appear here</p></div>';
+      return;
+    }
+
+    const urgColors = {low:'var(--green-bg);color:var(--green)',medium:'var(--orange-bg);color:var(--orange)',high:'var(--red-bg);color:var(--red)'};
+    grid.innerHTML = data.documents.map(d => `
+      <div class="history-card">
+        <div class="hc-type">${(d.doc_type||'').replace('_',' ')}</div>
+        <div class="hc-title">${d.doc_subtype||d.filename||'Document'}</div>
+        <div class="hc-issuer">${d.issuing_body||''}</div>
+        <div class="hc-meta">${new Date(d.created_at).toLocaleDateString()} &middot; ${d.filename||''}</div>
+        ${d.urgency ? `<div class="hc-urgency" style="background:${urgColors[d.urgency]||''}">${d.urgency}</div>` : ''}
+      </div>
+    `).join('');
+  } catch(e) {
+    console.log('Failed to load history:', e);
+  }
+}
+
+// ========================================
+// Boot
+// ========================================
+init();
+</script>
+</body>
+</html>
