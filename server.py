@@ -66,7 +66,12 @@ TIERS = {
     'unlimited': {'scans_per_month': 999999, 'has_translation': True, 'name': 'Unlimited'},
 }
 
-USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'users.json')
+# Use /data for Railway Volume persistence, fallback to app directory
+_DATA_DIR = os.environ.get('DATA_DIR', os.path.dirname(os.path.abspath(__file__)))
+if not os.path.isdir(_DATA_DIR):
+    os.makedirs(_DATA_DIR, exist_ok=True)
+USERS_FILE = os.path.join(_DATA_DIR, 'users.json')
+REPORTS_FILE = os.path.join(_DATA_DIR, 'reports.jsonl')
 _users_lock = threading.Lock()
 
 
@@ -745,7 +750,7 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(content_length).decode('utf-8'))
 
             # Save to reports log file
-            report_file = os.path.join(APP_DIR, 'reports.jsonl')
+            report_file = REPORTS_FILE
             with open(report_file, 'a', encoding='utf-8') as f:
                 body['received_at'] = time.strftime('%Y-%m-%d %H:%M:%S')
                 f.write(json.dumps(body, ensure_ascii=False) + '\n')

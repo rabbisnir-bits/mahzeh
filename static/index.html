@@ -55,6 +55,11 @@
     .step-dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:background .3s}
     .step-dot.active{background:var(--blue)}
     .step-dot.done{background:var(--green)}
+    .progress-wrap{margin:20px auto 0;max-width:400px}
+    .progress-bar{background:var(--border);border-radius:20px;height:12px;overflow:hidden}
+    .progress-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--green));border-radius:20px;width:0%;transition:width .8s ease}
+    .progress-pct{font-size:13px;color:var(--mid);margin-top:6px}
+    .progress-elapsed{font-size:12px;color:var(--mid);margin-top:4px;opacity:.7}
 
     /* Error */
     .error-box{background:var(--red-bg);border:1px solid #F5C6CB;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:none}
@@ -204,6 +209,11 @@
       <h3 id="processingTitle">Reading your document...</h3>
       <p id="processingDesc">Extracting Hebrew text from PDF</p>
       <div class="step-indicator"><div class="step-dot active" id="step1"></div><div class="step-dot" id="step2"></div><div class="step-dot" id="step3"></div></div>
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-pct" id="progressPct">0%</div>
+        <div class="progress-elapsed" id="progressElapsed"></div>
+      </div>
     </div>
 
     <!-- Error -->
@@ -488,16 +498,14 @@ async function processFile(file) {
 
   const proc = document.getElementById('processingState');
   proc.classList.add('active');
-  updateStep(1, 'Uploading document...', `Sending ${file.name} to Claude`);
+  document.getElementById('progressFill').style.background = 'linear-gradient(90deg,var(--blue),var(--green))';
+  startProgress();
 
   const formData = new FormData();
   formData.append('file', file);
   formData.append('language', selectedLang);
 
   try {
-    setTimeout(() => updateStep(1, 'Step 1: Classifying...', 'Claude is reading the Hebrew and identifying the document type'), 3000);
-    setTimeout(() => updateStep(2, 'Step 2: Translating...', 'Claude is translating every page — this takes 1-3 minutes for accuracy'), 15000);
-    setTimeout(() => updateStep(3, 'Still translating...', 'Dense Hebrew legal docs take time — accuracy over speed'), 60000);
 
     const headers = {};
     if (userEmail) headers['X-User-Email'] = userEmail;
@@ -512,7 +520,8 @@ async function processFile(file) {
 
     const resp = await fetch('/api/process', { method: 'POST', body: formData, headers });
     const data = await resp.json();
-    proc.classList.remove('active');
+    stopProgress(!data.error && !data.tier_limit);
+    setTimeout(() => proc.classList.remove('active'), 500);
 
     if (data.tier_limit) {
       showError(data.error);
@@ -527,15 +536,80 @@ async function processFile(file) {
       showError('Unexpected response');
     }
   } catch(err) {
+    stopProgress(false);
     proc.classList.remove('active');
     showError(`Network error: ${err.message}. Is the server running?`);
   }
 }
 
+let progressInterval = null;
+function startProgress() {
+  let elapsed = 0;
+  const fill = document.getElementById('progressFill');
+  const pct = document.getElementById('progressPct');
+  const elap = document.getElementById('progressElapsed');
+  fill.style.width = '0%';
+  pct.textContent = '0%';
+  elap.textContent = '';
+  clearInterval(progressInterval);
+
+  // Milestones: simulated progress based on typical scan times
+  const milestones = [
+    { time: 3, pct: 8, msg: 'Uploading document...' },
+    { time: 8, pct: 15, msg: 'Step 1: Reading Hebrew text...' },
+    { time: 15, pct: 25, msg: 'Step 1: Classifying document...' },
+    { time: 25, pct: 40, msg: 'Step 1: Extracting all text...' },
+    { time: 35, pct: 50, msg: 'Step 2: Translating page by page...' },
+    { time: 50, pct: 65, msg: 'Step 2: Translating (this is the slow part)...' },
+    { time: 70, pct: 78, msg: 'Step 2: Almost done translating...' },
+    { time: 90, pct: 88, msg: 'Step 2: Finishing up...' },
+    { time: 110, pct: 93, msg: 'Taking a bit longer — complex document...' },
+    { time: 130, pct: 96, msg: 'Almost there...' },
+  ];
+
+  progressInterval = setInterval(() => {
+    elapsed++;
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    elap.textContent = mins > 0 ? `${mins}m ${secs}s elapsed` : `${secs}s elapsed`;
+
+    // Find current milestone
+    let currentPct = 2;
+    let currentMsg = 'Starting...';
+    for (const m of milestones) {
+      if (elapsed >= m.time) { currentPct = m.pct; currentMsg = m.msg; }
+    }
+    // Smooth increment between milestones
+    fill.style.width = currentPct + '%';
+    pct.textContent = currentPct + '%';
+    document.getElementById('processingTitle').textContent = currentMsg;
+
+    // Update step dots
+    if (elapsed < 15) updateStepDots(1);
+    else if (elapsed < 35) updateStepDots(2);
+    else updateStepDots(3);
+  }, 1000);
+}
+
+function stopProgress(success) {
+  clearInterval(progressInterval);
+  const fill = document.getElementById('progressFill');
+  const pct = document.getElementById('progressPct');
+  if (success) {
+    fill.style.width = '100%';
+    fill.style.background = 'var(--green)';
+    pct.textContent = '100% — Done!';
+  }
+}
+
+function updateStepDots(n) {
+  for(let i=1;i<=3;i++){const d=document.getElementById('step'+i);d.className='step-dot';if(i<n)d.classList.add('done');else if(i===n)d.classList.add('active');}
+}
+
 function updateStep(n, title, desc) {
   document.getElementById('processingTitle').textContent = title;
   document.getElementById('processingDesc').textContent = desc;
-  for(let i=1;i<=3;i++){const d=document.getElementById('step'+i);d.className='step-dot';if(i<n)d.classList.add('done');else if(i===n)d.classList.add('active');}
+  updateStepDots(n);
 }
 
 // ========================================
