@@ -316,7 +316,7 @@
     <h3 style="font-size:20px;color:var(--navy);margin-bottom:4px">Your Plan</h3>
     <div id="modalTierInfo" style="margin:12px 0;padding:12px;background:var(--light);border-radius:8px;font-size:14px">
       <div><strong id="modalTierName">Free</strong> plan</div>
-      <div style="color:var(--mid);margin-top:4px"><span id="modalScansUsed">0</span> / <span id="modalScansLimit">3</span> scans this month</div>
+      <div style="color:var(--mid);margin-top:4px"><span id="modalScansUsed">0</span> / <span id="modalScansLimit">5</span> scans this month</div>
       <div id="modalTransStatus" style="margin-top:4px;font-size:13px"></div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
@@ -333,7 +333,7 @@
       </div></details>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px;text-align:center">
-      <p style="font-size:13px;color:var(--mid);margin-bottom:8px">Need more scans? Get an access code:</p>
+      <p style="font-size:13px;color:var(--mid);margin-bottom:8px">Need more scans?</p>
       <a href="/landing.html" style="display:inline-block;padding:10px 24px;background:var(--orange);color:white;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none">View Plans &amp; Pricing</a>
     </div>
   </div>
@@ -909,7 +909,17 @@ function showAccessCodeModal() {
   document.getElementById('modalTierName').textContent = userTier.charAt(0).toUpperCase() + userTier.slice(1);
   document.getElementById('modalScansUsed').textContent = scansUsed;
   document.getElementById('modalScansLimit').textContent = userTier === 'unlimited' ? 'unlimited' : scansLimit;
-  document.getElementById('modalTransStatus').textContent = hasTrans ? 'Full translation included' : 'Summary only (upgrade for full translation)';
+  if (userTier === 'free') {
+    const fullLeft = Math.max(0, 1 - scansUsed);
+    const summaryLeft = Math.max(0, 5 - Math.max(scansUsed, 1));
+    document.getElementById('modalTransStatus').textContent = fullLeft > 0
+      ? `${fullLeft} full scan + ${summaryLeft + fullLeft === 1 ? 4 : summaryLeft} summaries remaining`
+      : `${Math.max(0, 5 - scansUsed)} summary-only scans remaining`;
+    document.getElementById('modalTransStatus').style.color = 'var(--orange)';
+  } else {
+    document.getElementById('modalTransStatus').textContent = 'Full translation included';
+    document.getElementById('modalTransStatus').style.color = 'var(--green)';
+  }
   document.getElementById('modalTransStatus').style.color = hasTrans ? 'var(--green)' : 'var(--orange)';
 }
 
