@@ -731,6 +731,8 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_activate()
         elif parsed.path == '/api/admin/generate-code':
             self.handle_generate_code()
+        elif parsed.path == '/api/cardcom-webhook':
+            self.handle_cardcom_webhook_post()
         elif parsed.path == '/api/whatsapp':
             self.handle_whatsapp_webhook()
         else:
@@ -827,28 +829,45 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"error": str(e)}, 500)
 
     def handle_cardcom_webhook(self):
-        """CardCom IndicatorUrl webhook — called by CardCom after payment.
-        CardCom sends GET with parameters like:
-        ?terminalnumber=X&lowprofilecode=Y&DealResponse=0&email=user@email.com
-        &InternalDealNumber=123&Amount=149&ProductName=...
-        DealResponse=0 means success.
-        """
+        """CardCom IndicatorUrl webhook via GET."""
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
+        print(f"  CardCom GET webhook received: {self.path[:500]}")
+        self._process_cardcom_params(params)
 
-        deal_response = params.get('DealResponse', params.get('dealresponse', ['']))[0]
-        email = params.get('CardOwnerEmail', params.get('cardowneremail',
-                 params.get('Email', params.get('email', ['']))))[0].strip().lower()
-        amount = params.get('Amount', params.get('amount', ['0']))[0]
-        deal_number = params.get('InternalDealNumber', params.get('internaldealNumber', ['']))[0]
-        product = params.get('ProductName', params.get('productname', ['']))[0]
+    def handle_cardcom_webhook_post(self):
+        """CardCom webhook via POST — reads form data from body."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length).decode('utf-8')
+            params = parse_qs(body)
+            print(f"  CardCom POST webhook received: {body[:500]}")
+            self._process_cardcom_params(params)
+        except Exception as e:
+            print(f"  CardCom POST webhook error: {e}")
+            traceback.print_exc()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'OK')
 
-        print(f"  CardCom webhook: DealResponse={deal_response}, email={email}, amount={amount}, deal={deal_number}, product={product}")
-        print(f"  Full params: {dict(params)}")
+    def _process_cardcom_params(self, params):
+        """Process CardCom webhook parameters (shared by GET and POST handlers)."""
+        # CardCom sends various parameter name formats
+        def get_param(names):
+            for n in names:
+                val = params.get(n, params.get(n.lower(), ['']))[0] if params.get(n, params.get(n.lower())) else ''
+                if val: return val.strip()
+            return ''
 
-        # Only process successful payments
+        deal_response = get_param(['DealResponse', 'dealresponse', 'ResponseCode', 'responsecode'])
+        email = get_param(['CardOwnerEmail', 'cardowneremail', 'Email', 'email', 'CardOwnerEmail ']).lower()
+        amount = get_param(['Amount', 'amount', 'SumInStars', 'suminstars'])
+        deal_number = get_param(['InternalDealNumber', 'internaldealNumber', 'internaldealNumber', 'InternalDealNumber '])
+        product = get_param(['ProductName', 'productname', 'ItemDescription', 'itemdescription'])
+
+        print(f"  CardCom: DealResponse={deal_response}, email={email}, amount={amount}, deal={deal_number}, product={product}")
+
         if deal_response == '0' and email:
-            # Determine tier from amount
             try:
                 amt = float(amount)
             except (ValueError, TypeError):
@@ -859,9 +878,8 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             elif amt >= 100:
                 tier = 'basic'
             else:
-                tier = 'basic'  # Default to basic for any paid amount
+                tier = 'basic'
 
-            # Register the email as a paid user
             user_id = f"email:{email}"
             with _users_lock:
                 users = _load_users()
@@ -874,11 +892,10 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
                 users[user_id]['product'] = product
                 _save_users(users)
 
-            print(f"  ✓ Registered {email} as {tier} (deal #{deal_number}, {amount} NIS)")
+            print(f"  Registered {email} as {tier} (deal #{deal_number}, {amount} NIS)")
         else:
-            print(f"  ✗ Payment not successful or no email (DealResponse={deal_response})")
+            print(f"  Payment not successful or no email (DealResponse={deal_response})")
 
-        # CardCom expects HTTP 200
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'OK')
