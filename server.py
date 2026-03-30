@@ -344,7 +344,7 @@ def _build_pdf_content(pdf_bytes, user_text, media_type='application/pdf'):
 
 
 def _call_claude(system_prompt, user_content, api_key, max_tokens=8000):
-    """Core Claude API call."""
+    """Core Claude API call with retry on rate limits."""
 
     body = json.dumps({
         "model": "claude-sonnet-4-20250514",
@@ -354,21 +354,30 @@ def _call_claude(system_prompt, user_content, api_key, max_tokens=8000):
         "messages": [{"role": "user", "content": user_content}]
     }).encode('utf-8')
 
-    req = urllib.request.Request(
-        'https://api.anthropic.com/v1/messages',
-        data=body,
-        headers={
-            'Content-Type': 'application/json',
-            'x-api-key': api_key,
-            'anthropic-version': '2023-06-01',
-            'anthropic-beta': 'pdfs-2024-09-25'
-        },
-        method='POST'
-    )
+    for attempt in range(4):
+        req = urllib.request.Request(
+            'https://api.anthropic.com/v1/messages',
+            data=body,
+            headers={
+                'Content-Type': 'application/json',
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'anthropic-beta': 'pdfs-2024-09-25'
+            },
+            method='POST'
+        )
 
-    with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=300) as resp:
-        data = json.loads(resp.read().decode('utf-8'))
-        return data.get('content', [{}])[0].get('text', '').strip()
+        try:
+            with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=300) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data.get('content', [{}])[0].get('text', '').strip()
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 3:
+                wait = (attempt + 1) * 30  # 30s, 60s, 90s
+                print(f"  Rate limited (429), waiting {wait}s before retry {attempt+2}/4...")
+                time.sleep(wait)
+                continue
+            raise
 
 
 def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English', skip_translation=False, media_type='application/pdf'):
@@ -415,6 +424,8 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English',
             print(f"  Claude API HTTP {e.code}: {error_body[:500]}")
             if e.code == 401:
                 return None, "Invalid API key. Please check your ANTHROPIC_API_KEY."
+            if e.code == 429:
+                return None, "We're experiencing high demand right now. Please wait a minute and try again."
             return None, f"Claude API error ({e.code}): {error_body[:200]}"
         except Exception as e:
             return None, f"Classification failed: {str(e)}"
