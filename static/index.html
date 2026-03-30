@@ -135,6 +135,9 @@
 <div class="topbar">
   <img src="/logo.png" alt="MahZeh?!" style="height:40px; margin-right:8px; vertical-align:middle;" onclick="location.reload()"><h1 style="cursor:pointer" onclick="location.reload()">MahZeh<span>?!</span></h1>
   <div class="topbar-right" id="topbarRight">
+    <div id="tierBadge" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer" onclick="showAccessCodeModal()">
+      <span id="tierLabel">Free</span> <span id="tierScans" style="opacity:.7">0/3</span>
+    </div>
     <button class="auth-btn" id="loginBtn" onclick="signIn()" style="display:none">Sign In</button>
   </div>
 </div>
@@ -292,6 +295,36 @@
   </div>
 </div>
 
+<!-- Access Code Modal -->
+<div id="accessCodeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:center;justify-content:center">
+  <div style="background:white;border-radius:16px;padding:32px;max-width:420px;width:90%;margin:auto;position:relative;top:50%;transform:translateY(-50%)">
+    <div style="text-align:right"><button onclick="closeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999">&times;</button></div>
+    <h3 style="font-size:20px;color:var(--navy);margin-bottom:4px">Your Plan</h3>
+    <div id="modalTierInfo" style="margin:12px 0;padding:12px;background:var(--light);border-radius:8px;font-size:14px">
+      <div><strong id="modalTierName">Free</strong> plan</div>
+      <div style="color:var(--mid);margin-top:4px"><span id="modalScansUsed">0</span> / <span id="modalScansLimit">3</span> scans this month</div>
+      <div id="modalTransStatus" style="margin-top:4px;font-size:13px"></div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+      <h4 style="font-size:15px;margin-bottom:8px">Already paid? Enter your email:</h4>
+      <div style="display:flex;gap:8px">
+        <input type="email" id="emailInput" placeholder="your@email.com" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:15px;text-align:center"/>
+        <button onclick="loginWithEmail()" style="padding:10px 20px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">Log In</button>
+      </div>
+      <div id="codeMessage" style="margin-top:8px;font-size:13px;display:none"></div>
+      <details style="margin-top:12px"><summary style="font-size:13px;color:var(--mid);cursor:pointer">Have an access code instead?</summary>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input type="text" id="accessCodeInput" placeholder="Enter code" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:15px;text-transform:uppercase;letter-spacing:2px;text-align:center" maxlength="8"/>
+        <button onclick="activateCode()" style="padding:10px 16px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Go</button>
+      </div></details>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px;text-align:center">
+      <p style="font-size:13px;color:var(--mid);margin-bottom:8px">Need more scans? Get an access code:</p>
+      <a href="/landing.html" style="display:inline-block;padding:10px 24px;background:var(--orange);color:white;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none">View Plans &amp; Pricing</a>
+    </div>
+  </div>
+</div>
+
 <!-- Supabase JS (loaded from CDN, non-blocking) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" async onerror="console.log('Supabase CDN unavailable, running without auth')"></script>
 
@@ -303,6 +336,12 @@ let supabase = null;
 let currentUser = null;
 let startTime = 0;
 let serverConfig = {};
+let userTier = 'free';
+let scansUsed = 0;
+let scansLimit = 3;
+let hasTrans = false;
+let accessCode = localStorage.getItem('mahzeh_code') || '';
+let userEmail = localStorage.getItem('mahzeh_email') || '';
 
 // ========================================
 // Init
@@ -316,8 +355,20 @@ async function init() {
     serverConfig = { api_key_set: false, supabase_configured: false, whatsapp_configured: false };
   }
 
+  // Check URL for email param (from CardCom payment redirect)
+  const urlParams = new URLSearchParams(window.location.search);
+  const emailParam = urlParams.get('email');
+  if (emailParam) {
+    userEmail = emailParam.toLowerCase().trim();
+    localStorage.setItem('mahzeh_email', userEmail);
+    window.history.replaceState({}, '', '/');  // Clean URL
+  }
+
   // Always show the main app first
   showMainApp();
+
+  // Fetch tier status
+  await loadTierStatus();
 
   // Init Supabase if configured and SDK loaded
   if (serverConfig.supabase_configured && window.supabase && window.SUPABASE_URL) {
@@ -449,6 +500,8 @@ async function processFile(file) {
     setTimeout(() => updateStep(3, 'Still translating...', 'Dense Hebrew legal docs take time — accuracy over speed'), 60000);
 
     const headers = {};
+    if (userEmail) headers['X-User-Email'] = userEmail;
+    else if (accessCode) headers['X-Access-Code'] = accessCode;
     // Add auth token if available
     if (supabase) {
       try {
@@ -461,9 +514,15 @@ async function processFile(file) {
     const data = await resp.json();
     proc.classList.remove('active');
 
+    if (data.tier_limit) {
+      showError(data.error);
+      return;
+    }
     if (data.error) { showError(data.error); return; }
     if (data.success && data.result) {
-      showResults(data.result, file.name, data.saved);
+      // Update tier counters from response
+      if (data.tier) { userTier = data.tier; scansUsed = data.scans_used; scansLimit = data.scans_limit; updateTierUI(); }
+      showResults(data.result, file.name, data.saved, data.translation_skipped);
     } else {
       showError('Unexpected response');
     }
@@ -485,7 +544,7 @@ function updateStep(n, title, desc) {
 // Store result for copy
 let lastResult = null;
 
-function showResults(r, filename, saved) {
+function showResults(r, filename, saved, translationSkipped) {
   lastResult = r;
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   document.getElementById('processingTime').textContent = `Processed in ${elapsed}s`;
@@ -527,8 +586,16 @@ function showResults(r, filename, saved) {
   }
 
   // Full Translation — shown by default, not hidden!
-  if (r.translation) {
-    html += `<div class="section-label">Full English Translation</div>`;
+  if (translationSkipped || r.translation_skipped) {
+    html += `<div class="section-label">Full Translation</div>`;
+    html += `<div style="background:var(--orange-bg);border:1px solid var(--orange);border-radius:10px;padding:20px;text-align:center">
+      <div style="font-size:24px;margin-bottom:8px">&#128274;</div>
+      <div style="font-size:16px;font-weight:600;color:var(--orange);margin-bottom:6px">Full translation is a paid feature</div>
+      <div style="font-size:14px;color:var(--mid);margin-bottom:12px">Upgrade to Basic (149 NIS/year) or Unlimited (299 NIS/year) to get full page-by-page translations.</div>
+      <a href="/landing.html" style="display:inline-block;padding:10px 24px;background:var(--orange);color:white;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none">View Plans</a>
+    </div>`;
+  } else if (r.translation) {
+    html += `<div class="section-label">Full Translation</div>`;
     let trans = (r.translation||'')
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -670,6 +737,119 @@ async function loadHistory() {
     `).join('');
   } catch(e) {
     console.log('Failed to load history:', e);
+  }
+}
+
+// ========================================
+// Tier System
+// ========================================
+async function loadTierStatus() {
+  try {
+    const headers = {};
+    if (userEmail) headers['X-User-Email'] = userEmail;
+    else if (accessCode) headers['X-Access-Code'] = accessCode;
+    const resp = await fetch('/api/user-status', { headers });
+    const data = await resp.json();
+    userTier = data.tier;
+    scansUsed = data.scans_this_month;
+    scansLimit = data.scans_limit;
+    hasTrans = data.has_translation;
+    updateTierUI();
+  } catch(e) {
+    console.log('Tier check failed:', e);
+  }
+}
+
+function updateTierUI() {
+  const label = document.getElementById('tierLabel');
+  const scans = document.getElementById('tierScans');
+  const tierColors = { free: '#888', basic: '#2E86AB', unlimited: '#27AE60' };
+  if (userEmail && userTier !== 'free') {
+    label.textContent = userTier.charAt(0).toUpperCase() + userTier.slice(1);
+  } else if (userEmail) {
+    label.textContent = 'Free';
+  } else {
+    label.textContent = 'Free';
+  }
+  label.style.color = tierColors[userTier] || '#888';
+  if (userTier === 'unlimited') {
+    scans.textContent = `${scansUsed} scans`;
+  } else {
+    scans.textContent = `${scansUsed}/${scansLimit}`;
+  }
+}
+
+async function loginWithEmail() {
+  const email = document.getElementById('emailInput').value.trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    const msg = document.getElementById('codeMessage');
+    msg.style.display = 'block'; msg.style.color = 'var(--red)';
+    msg.textContent = 'Please enter a valid email';
+    return;
+  }
+  userEmail = email;
+  localStorage.setItem('mahzeh_email', email);
+  await loadTierStatus();
+  const msg = document.getElementById('codeMessage');
+  msg.style.display = 'block';
+  if (userTier !== 'free') {
+    msg.style.color = 'var(--green)';
+    msg.textContent = `Welcome back! You're on the ${userTier.charAt(0).toUpperCase() + userTier.slice(1)} plan.`;
+    setTimeout(closeModal, 1500);
+  } else {
+    msg.style.color = 'var(--orange)';
+    msg.textContent = 'This email is on the Free plan. If you just paid, it may take a minute to activate.';
+  }
+}
+
+function showAccessCodeModal() {
+  const modal = document.getElementById('accessCodeModal');
+  modal.style.display = 'block';
+  document.getElementById('modalTierName').textContent = userTier.charAt(0).toUpperCase() + userTier.slice(1);
+  document.getElementById('modalScansUsed').textContent = scansUsed;
+  document.getElementById('modalScansLimit').textContent = userTier === 'unlimited' ? 'unlimited' : scansLimit;
+  document.getElementById('modalTransStatus').textContent = hasTrans ? 'Full translation included' : 'Summary only (upgrade for full translation)';
+  document.getElementById('modalTransStatus').style.color = hasTrans ? 'var(--green)' : 'var(--orange)';
+}
+
+function closeModal() {
+  document.getElementById('accessCodeModal').style.display = 'none';
+  document.getElementById('codeMessage').style.display = 'none';
+}
+
+async function activateCode() {
+  const code = document.getElementById('accessCodeInput').value.trim().toUpperCase();
+  if (!code) return;
+  const msg = document.getElementById('codeMessage');
+  msg.style.display = 'block';
+  msg.style.color = 'var(--mid)';
+  msg.textContent = 'Checking...';
+
+  try {
+    const resp = await fetch('/api/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const data = await resp.json();
+    if (data.success) {
+      accessCode = code;
+      localStorage.setItem('mahzeh_code', code);
+      userTier = data.tier;
+      scansUsed = data.scans_this_month;
+      scansLimit = data.scans_limit;
+      hasTrans = data.has_translation;
+      updateTierUI();
+      msg.style.color = 'var(--green)';
+      msg.textContent = data.message;
+      setTimeout(closeModal, 2000);
+    } else {
+      msg.style.color = 'var(--red)';
+      msg.textContent = data.error || 'Invalid code';
+    }
+  } catch(e) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = 'Network error. Try again.';
   }
 }
 

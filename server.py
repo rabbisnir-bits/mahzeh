@@ -31,6 +31,9 @@ import urllib.request
 import urllib.error
 import ssl
 from urllib.parse import urlparse, parse_qs, unquote
+import threading
+import calendar
+from datetime import datetime
 
 # Load .env if python-dotenv is available
 try:
@@ -53,6 +56,102 @@ CONFIG = {
     'WHATSAPP_VERIFY_TOKEN': os.environ.get('WHATSAPP_VERIFY_TOKEN', 'mahzeh-verify'),
     'PORT': int(os.environ.get('PORT', 8080)),
 }
+
+# ========================================
+# Tier System — Usage Tracking
+# ========================================
+TIERS = {
+    'free':      {'scans_per_month': 3,  'has_translation': False, 'name': 'Free'},
+    'basic':     {'scans_per_month': 20, 'has_translation': True,  'name': 'Basic'},
+    'unlimited': {'scans_per_month': 999999, 'has_translation': True, 'name': 'Unlimited'},
+}
+
+USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'users.json')
+_users_lock = threading.Lock()
+
+
+def _load_users():
+    """Load users database from JSON file."""
+    try:
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_users(users):
+    """Save users database to JSON file."""
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f, indent=2, ensure_ascii=False)
+
+
+def _get_month_key():
+    """Get current month as YYYY-MM string."""
+    return datetime.utcnow().strftime('%Y-%m')
+
+
+def _get_user_id(request_handler):
+    """Generate user ID from email, access code, or IP hash."""
+    # Check for email-based login (from paid users)
+    email = request_handler.headers.get('X-User-Email', '').strip().lower()
+    if email:
+        return f"email:{email}"
+
+    # Check for access code
+    access_code = request_handler.headers.get('X-Access-Code', '').strip()
+    if access_code:
+        return f"code:{access_code}"
+
+    # Fallback: hash of IP + User-Agent for anonymous users
+    ip = request_handler.client_address[0]
+    ua = request_handler.headers.get('User-Agent', '')
+    raw = f"{ip}:{ua}"
+    return f"anon:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
+
+
+def get_user_tier_and_usage(user_id):
+    """Get a user's tier and scan count for this month."""
+    with _users_lock:
+        users = _load_users()
+        user = users.get(user_id, {})
+        tier = user.get('tier', 'free')
+        month = _get_month_key()
+        scans = user.get('scans', {}).get(month, 0)
+        return tier, scans
+
+
+def increment_scan_count(user_id):
+    """Increment a user's scan count for this month."""
+    with _users_lock:
+        users = _load_users()
+        if user_id not in users:
+            users[user_id] = {'tier': 'free', 'scans': {}}
+        month = _get_month_key()
+        if 'scans' not in users[user_id]:
+            users[user_id]['scans'] = {}
+        users[user_id]['scans'][month] = users[user_id]['scans'].get(month, 0) + 1
+        _save_users(users)
+
+
+def activate_access_code(code, tier='basic'):
+    """Create or update an access code with a given tier."""
+    with _users_lock:
+        users = _load_users()
+        user_id = f"code:{code}"
+        if user_id not in users:
+            users[user_id] = {'tier': tier, 'scans': {}, 'activated_at': datetime.utcnow().isoformat()}
+        else:
+            users[user_id]['tier'] = tier
+        _save_users(users)
+        return True
+
+
+def generate_access_code():
+    """Generate a random 8-char access code."""
+    import random
+    import string
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
 
 # ========================================
 # PDF Text Extraction
@@ -246,7 +345,7 @@ def _call_claude(system_prompt, user_content, api_key, max_tokens=8000):
         return data.get('content', [{}])[0].get('text', '').strip()
 
 
-def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English'):
+def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English', skip_translation=False):
     """Two-pass document analysis: Pass 1 reads PDF + classifies, Pass 2 translates extracted text."""
 
     lang_instruction = f"Translate into {target_lang}." if target_lang != 'English' else ""
@@ -256,25 +355,39 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English')
     else:
         content_classify = f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Write the summary and action items in {target_lang}. Return JSON only.\n\n{hebrew_text}"
 
-    # PASS 1: Read PDF + extract Hebrew text + classify
+    # PASS 1: Read PDF + extract Hebrew text + classify (with retry on JSON errors)
     print("  Pass 1: Reading PDF and extracting Hebrew text...")
-    try:
-        raw = _call_claude(CLASSIFY_PROMPT, content_classify, api_key, max_tokens=12000)
-        # Strip markdown wrapping
-        if raw.startswith('```json'): raw = raw[7:]
-        if raw.startswith('```'): raw = raw[3:]
-        if raw.endswith('```'): raw = raw[:-3]
-        result = json.loads(raw.strip())
-    except json.JSONDecodeError as e:
-        return None, f"Classification returned invalid JSON: {str(e)[:100]}"
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8', errors='replace')
-        print(f"  Claude API HTTP {e.code}: {error_body[:500]}")
-        if e.code == 401:
-            return None, "Invalid API key. Please check your ANTHROPIC_API_KEY."
-        return None, f"Claude API error ({e.code}): {error_body[:200]}"
-    except Exception as e:
-        return None, f"Classification failed: {str(e)}"
+    result = None
+    last_error = None
+    for attempt in range(3):
+        try:
+            raw = _call_claude(CLASSIFY_PROMPT, content_classify, api_key, max_tokens=12000)
+            # Strip markdown wrapping
+            if raw.startswith('```json'): raw = raw[7:]
+            if raw.startswith('```'): raw = raw[3:]
+            if raw.endswith('```'): raw = raw[:-3]
+            raw = raw.strip()
+            # Try to fix common JSON issues: trailing commas
+            raw = re.sub(r',\s*}', '}', raw)
+            raw = re.sub(r',\s*]', ']', raw)
+            result = json.loads(raw)
+            break
+        except json.JSONDecodeError as e:
+            last_error = f"Classification returned invalid JSON (attempt {attempt+1}): {str(e)[:100]}"
+            print(f"  {last_error}")
+            if attempt < 2:
+                print("  Retrying...")
+                continue
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8', errors='replace')
+            print(f"  Claude API HTTP {e.code}: {error_body[:500]}")
+            if e.code == 401:
+                return None, "Invalid API key. Please check your ANTHROPIC_API_KEY."
+            return None, f"Claude API error ({e.code}): {error_body[:200]}"
+        except Exception as e:
+            return None, f"Classification failed: {str(e)}"
+    if result is None:
+        return None, last_error or "Classification failed after 3 attempts"
 
     print(f"  Pass 1 done: {result.get('doc_type')} / {result.get('doc_subtype')}")
 
@@ -284,6 +397,13 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English')
         print(f"  Extracted {len(extracted_hebrew)} chars of Hebrew text")
     else:
         print("  WARNING: No Hebrew text extracted, falling back to PDF for translation")
+
+    # Skip translation for free tier
+    if skip_translation:
+        print("  Skipping translation (free tier)")
+        result['translation'] = None
+        result['translation_skipped'] = True
+        return result, None
 
     # PASS 2: Translate the EXTRACTED TEXT (not the PDF again)
     print(f"  Pass 2: Translating Hebrew text into {target_lang} (this takes a minute)...")
@@ -579,8 +699,14 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
                 "supabase_configured": bool(CONFIG['SUPABASE_URL']),
                 "whatsapp_configured": bool(CONFIG['TWILIO_ACCOUNT_SID'])
             })
+        elif parsed.path == '/api/user-status':
+            self.handle_user_status()
         elif parsed.path == '/api/documents':
             self.handle_get_documents()
+        elif parsed.path == '/api/cardcom-webhook':
+            self.handle_cardcom_webhook()
+        elif parsed.path == '/api/payment-success':
+            self.handle_payment_success()
         elif parsed.path == '/api/whatsapp' and parse_qs(parsed.query).get('hub.mode'):
             # WhatsApp webhook verification (Meta)
             params = parse_qs(parsed.query)
@@ -601,6 +727,10 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_process()
         elif parsed.path == '/api/report':
             self.handle_report()
+        elif parsed.path == '/api/activate':
+            self.handle_activate()
+        elif parsed.path == '/api/admin/generate-code':
+            self.handle_generate_code()
         elif parsed.path == '/api/whatsapp':
             self.handle_whatsapp_webhook()
         else:
@@ -624,6 +754,167 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             print(f"  Report error: {e}")
             self.send_json({"success": True})  # Don't show error to user
 
+    def handle_user_status(self):
+        """Return the user's tier, scan count, and limits."""
+        user_id = _get_user_id(self)
+        tier, scans = get_user_tier_and_usage(user_id)
+        tier_info = TIERS.get(tier, TIERS['free'])
+        self.send_json({
+            'tier': tier,
+            'tier_name': tier_info['name'],
+            'scans_this_month': scans,
+            'scans_limit': tier_info['scans_per_month'],
+            'has_translation': tier_info['has_translation'],
+            'month': _get_month_key()
+        })
+
+    def handle_activate(self):
+        """Activate an access code to upgrade tier."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            code = body.get('code', '').strip().upper()
+            if not code:
+                self.send_json({"error": "No access code provided"}, 400)
+                return
+
+            # Check if this code exists in users.json
+            user_id = f"code:{code}"
+            with _users_lock:
+                users = _load_users()
+                if user_id not in users:
+                    self.send_json({"error": "Invalid access code. Please check and try again."}, 404)
+                    return
+                tier = users[user_id].get('tier', 'basic')
+
+            tier_info = TIERS.get(tier, TIERS['basic'])
+            scans = get_user_tier_and_usage(user_id)[1]
+            self.send_json({
+                "success": True,
+                "tier": tier,
+                "tier_name": tier_info['name'],
+                "scans_this_month": scans,
+                "scans_limit": tier_info['scans_per_month'],
+                "has_translation": tier_info['has_translation'],
+                "message": f"Welcome! You're on the {tier_info['name']} plan."
+            })
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
+    def handle_generate_code(self):
+        """Admin endpoint: generate access codes. Protected by admin key."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = json.loads(self.rfile.read(content_length).decode('utf-8'))
+            admin_key = body.get('admin_key', '')
+
+            # Simple admin protection — use ANTHROPIC_API_KEY as admin key
+            if admin_key != CONFIG['ANTHROPIC_API_KEY']:
+                self.send_json({"error": "Unauthorized"}, 401)
+                return
+
+            tier = body.get('tier', 'basic')
+            count = min(body.get('count', 1), 50)  # Max 50 at once
+
+            codes = []
+            for _ in range(count):
+                code = generate_access_code()
+                activate_access_code(code, tier)
+                codes.append(code)
+
+            self.send_json({"codes": codes, "tier": tier})
+        except Exception as e:
+            self.send_json({"error": str(e)}, 500)
+
+    def handle_cardcom_webhook(self):
+        """CardCom IndicatorUrl webhook — called by CardCom after payment.
+        CardCom sends GET with parameters like:
+        ?terminalnumber=X&lowprofilecode=Y&DealResponse=0&email=user@email.com
+        &InternalDealNumber=123&Amount=149&ProductName=...
+        DealResponse=0 means success.
+        """
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        deal_response = params.get('DealResponse', params.get('dealresponse', ['']))[0]
+        email = params.get('CardOwnerEmail', params.get('cardowneremail',
+                 params.get('Email', params.get('email', ['']))))[0].strip().lower()
+        amount = params.get('Amount', params.get('amount', ['0']))[0]
+        deal_number = params.get('InternalDealNumber', params.get('internaldealNumber', ['']))[0]
+        product = params.get('ProductName', params.get('productname', ['']))[0]
+
+        print(f"  CardCom webhook: DealResponse={deal_response}, email={email}, amount={amount}, deal={deal_number}, product={product}")
+        print(f"  Full params: {dict(params)}")
+
+        # Only process successful payments
+        if deal_response == '0' and email:
+            # Determine tier from amount
+            try:
+                amt = float(amount)
+            except (ValueError, TypeError):
+                amt = 0
+
+            if amt >= 250:
+                tier = 'unlimited'
+            elif amt >= 100:
+                tier = 'basic'
+            else:
+                tier = 'basic'  # Default to basic for any paid amount
+
+            # Register the email as a paid user
+            user_id = f"email:{email}"
+            with _users_lock:
+                users = _load_users()
+                if user_id not in users:
+                    users[user_id] = {'tier': tier, 'scans': {}, 'email': email}
+                users[user_id]['tier'] = tier
+                users[user_id]['paid_at'] = datetime.utcnow().isoformat()
+                users[user_id]['deal_number'] = deal_number
+                users[user_id]['amount'] = amount
+                users[user_id]['product'] = product
+                _save_users(users)
+
+            print(f"  ✓ Registered {email} as {tier} (deal #{deal_number}, {amount} NIS)")
+        else:
+            print(f"  ✗ Payment not successful or no email (DealResponse={deal_response})")
+
+        # CardCom expects HTTP 200
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'OK')
+
+    def handle_payment_success(self):
+        """Redirect page after successful CardCom payment.
+        Shows a success message and auto-logs them in with their email."""
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        email = params.get('email', params.get('Email', ['']))[0] if params.get('email', params.get('Email')) else ''
+
+        html = f'''<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Payment Successful - MahZeh?!</title>
+<style>
+body{{font-family:-apple-system,sans-serif;background:#F8FAFC;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}}
+.box{{background:white;border-radius:16px;padding:40px;max-width:480px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.08)}}
+h1{{color:#27AE60;font-size:28px;margin-bottom:8px}}
+p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
+.btn{{display:inline-block;padding:14px 32px;background:#2E86AB;color:white;border-radius:10px;font-size:16px;font-weight:600;text-decoration:none}}
+.email-note{{background:#EBF5EC;border-radius:8px;padding:12px;font-size:14px;color:#27AE60;margin-bottom:20px}}
+</style></head><body>
+<div class="box">
+<div style="font-size:48px;margin-bottom:16px">&#10003;</div>
+<h1>Payment Successful!</h1>
+<p>Welcome to MahZeh Pro! Your account has been upgraded.</p>
+<div class="email-note">Your email <strong>{email or "from payment"}</strong> is now linked to your plan.</div>
+<p>Use this email in the app to unlock your paid features.</p>
+<a class="btn" href="/?email={email}">Start Scanning</a>
+</div></body></html>'''
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(html.encode('utf-8'))
+
     def handle_process(self):
         """Process PDF upload through the MahZeh pipeline."""
         try:
@@ -644,6 +935,22 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             # Extract target language from form
             target_lang = self.extract_field_from_multipart(body, boundary, 'language') or 'English'
             print(f"  Processing: {filename} ({len(pdf_bytes)} bytes) → {target_lang}")
+
+            # --- Tier enforcement ---
+            user_id = _get_user_id(self)
+            tier, scans = get_user_tier_and_usage(user_id)
+            tier_info = TIERS.get(tier, TIERS['free'])
+            if scans >= tier_info['scans_per_month']:
+                self.send_json({
+                    "error": f"You've used all {tier_info['scans_per_month']} scans this month on the {tier_info['name']} plan. Upgrade at {self.headers.get('Origin', '')}/landing.html for more scans.",
+                    "tier_limit": True,
+                    "tier": tier,
+                    "scans_used": scans,
+                    "scans_limit": tier_info['scans_per_month']
+                }, 429)
+                return
+            skip_translation = not tier_info['has_translation']
+            # --- End tier enforcement ---
 
             # Claude API
             api_key = CONFIG['ANTHROPIC_API_KEY']
@@ -667,34 +974,43 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
 
             print("  Calling Claude API...")
             if text:
-                result, error = call_claude_api(text, api_key, target_lang=target_lang)
+                result, error = call_claude_api(text, api_key, target_lang=target_lang, skip_translation=skip_translation)
             else:
-                result, error = call_claude_api(None, api_key, pdf_bytes=pdf_bytes, target_lang=target_lang)
+                result, error = call_claude_api(None, api_key, pdf_bytes=pdf_bytes, target_lang=target_lang, skip_translation=skip_translation)
 
             if error:
                 self.send_json({"error": f"Claude API: {error}"}, 500)
                 return
 
+            # Count this scan
+            increment_scan_count(user_id)
+
             text_length = len(text) if text else len(pdf_bytes)
             print(f"  Result: {result.get('doc_type')} / {result.get('doc_subtype')}")
 
             # Save to Supabase if user is authenticated
-            user_id = None
+            auth_user_id = None
             auth_header = self.headers.get('Authorization', '')
             if auth_header.startswith('Bearer ') and CONFIG['SUPABASE_URL']:
                 token = auth_header[7:]
                 user, err = verify_supabase_jwt(token)
                 if user and not err:
-                    user_id = user.get('id')
-                    save_document(user_id, filename or 'upload.pdf', result, text_length, engine)
-                    print(f"  Saved to DB for user {user_id[:8]}...")
+                    auth_user_id = user.get('id')
+                    save_document(auth_user_id, filename or 'upload.pdf', result, text_length, engine)
+                    print(f"  Saved to DB for user {auth_user_id[:8]}...")
 
+            new_scans = scans + 1
             self.send_json({
                 "success": True,
                 "ocr_engine": engine,
                 "text_length": text_length,
-                "saved": bool(user_id),
-                "result": result
+                "saved": bool(auth_user_id),
+                "result": result,
+                "tier": tier,
+                "tier_name": tier_info['name'],
+                "scans_used": new_scans,
+                "scans_limit": tier_info['scans_per_month'],
+                "translation_skipped": skip_translation
             })
 
         except Exception as e:

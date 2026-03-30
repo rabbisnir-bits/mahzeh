@@ -1,5 +1,6 @@
 .env
 reports.jsonl
+users.json
 __pycache__/
 *.pyc
 .DS_Store
