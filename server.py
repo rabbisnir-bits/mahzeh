@@ -61,9 +61,9 @@ CONFIG = {
 # Tier System — Usage Tracking
 # ========================================
 TIERS = {
-    'free':      {'scans_per_month': 3,  'has_translation': False, 'name': 'Free'},
-    'basic':     {'scans_per_month': 20, 'has_translation': True,  'name': 'Basic'},
-    'unlimited': {'scans_per_month': 999999, 'has_translation': True, 'name': 'Unlimited'},
+    'free':      {'scans_per_month': 5,  'full_scans': 1, 'has_translation': False, 'name': 'Free'},
+    'basic':     {'scans_per_month': 20, 'full_scans': 20, 'has_translation': True,  'name': 'Basic'},
+    'unlimited': {'scans_per_month': 999999, 'full_scans': 999999, 'has_translation': True, 'name': 'Unlimited'},
 }
 
 # Use /data for Railway Volume persistence, fallback to app directory
@@ -301,24 +301,40 @@ Translate this Hebrew document into the TARGET LANGUAGE specified in the user's 
 This is the MOST IMPORTANT part of the analysis. People make legal and financial decisions based on your translation. Be precise."""
 
 
-def _build_pdf_content(pdf_bytes, user_text):
-    """Build API message content with PDF or text."""
+def _build_pdf_content(pdf_bytes, user_text, media_type='application/pdf'):
+    """Build API message content with PDF or image."""
     if pdf_bytes:
-        pdf_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
-        return [
-            {
-                "type": "document",
-                "source": {
-                    "type": "base64",
-                    "media_type": "application/pdf",
-                    "data": pdf_b64
+        file_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
+        if media_type.startswith('image/'):
+            return [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": file_b64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": user_text
                 }
-            },
-            {
-                "type": "text",
-                "text": user_text
-            }
-        ]
+            ]
+        else:
+            return [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": file_b64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": user_text
+                }
+            ]
     return None
 
 
@@ -350,13 +366,13 @@ def _call_claude(system_prompt, user_content, api_key, max_tokens=8000):
         return data.get('content', [{}])[0].get('text', '').strip()
 
 
-def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English', skip_translation=False):
-    """Two-pass document analysis: Pass 1 reads PDF + classifies, Pass 2 translates extracted text."""
+def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English', skip_translation=False, media_type='application/pdf'):
+    """Two-pass document analysis: Pass 1 reads PDF/image + classifies, Pass 2 translates extracted text."""
 
     lang_instruction = f"Translate into {target_lang}." if target_lang != 'English' else ""
 
     if pdf_bytes:
-        content_classify = _build_pdf_content(pdf_bytes, f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Write the summary and action items in {target_lang}. Return JSON only.")
+        content_classify = _build_pdf_content(pdf_bytes, f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Write the summary and action items in {target_lang}. Return JSON only.", media_type=media_type)
     else:
         content_classify = f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Write the summary and action items in {target_lang}. Return JSON only.\n\n{hebrew_text}"
 
@@ -416,7 +432,7 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English',
         if extracted_hebrew:
             translate_content = f"Translate this Hebrew document into {target_lang}. Every page, every clause, every line.\n\n{extracted_hebrew}"
         elif pdf_bytes:
-            translate_content = _build_pdf_content(pdf_bytes, f"Translate this entire Hebrew document into {target_lang}. Every page, every clause.")
+            translate_content = _build_pdf_content(pdf_bytes, f"Translate this entire Hebrew document into {target_lang}. Every page, every clause.", media_type=media_type)
         else:
             translate_content = f"Translate this entire Hebrew document into {target_lang}. Every page, every clause.\n\n{hebrew_text}"
 
@@ -766,11 +782,14 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
         user_id = _get_user_id(self)
         tier, scans = get_user_tier_and_usage(user_id)
         tier_info = TIERS.get(tier, TIERS['free'])
+        full_scans = tier_info.get('full_scans', tier_info['scans_per_month'])
         self.send_json({
             'tier': tier,
             'tier_name': tier_info['name'],
             'scans_this_month': scans,
             'scans_limit': tier_info['scans_per_month'],
+            'full_scans': full_scans,
+            'full_scans_remaining': max(0, full_scans - scans),
             'has_translation': tier_info['has_translation'],
             'month': _get_month_key()
         })
@@ -938,7 +957,7 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
         self.wfile.write(html.encode('utf-8'))
 
     def handle_process(self):
-        """Process PDF upload through the MahZeh pipeline."""
+        """Process PDF or image upload through the MahZeh pipeline."""
         try:
             content_type = self.headers.get('Content-Type', '')
             if 'multipart/form-data' not in content_type:
@@ -949,14 +968,37 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)
 
-            pdf_bytes, filename = self.extract_file_from_multipart(body, boundary)
-            if not pdf_bytes:
-                self.send_json({"error": "No PDF file found"}, 400)
+            file_bytes, filename, file_media_type = self.extract_file_from_multipart(body, boundary)
+            if not file_bytes:
+                self.send_json({"error": "No file found. Please upload a PDF or take a photo."}, 400)
                 return
+
+            # Detect media type from filename/content-type
+            is_image = file_media_type and file_media_type.startswith('image/')
+            if not file_media_type:
+                ext = (filename or '').lower().rsplit('.', 1)[-1] if filename else ''
+                if ext in ('jpg', 'jpeg'):
+                    file_media_type = 'image/jpeg'
+                    is_image = True
+                elif ext == 'png':
+                    file_media_type = 'image/png'
+                    is_image = True
+                elif ext == 'webp':
+                    file_media_type = 'image/webp'
+                    is_image = True
+                elif ext == 'heic' or ext == 'heif':
+                    file_media_type = 'image/jpeg'  # Claude doesn't support HEIC, but we'll try
+                    is_image = True
+                else:
+                    file_media_type = 'application/pdf'
+
+            # Rename for clarity
+            pdf_bytes = file_bytes
 
             # Extract target language from form
             target_lang = self.extract_field_from_multipart(body, boundary, 'language') or 'English'
-            print(f"  Processing: {filename} ({len(pdf_bytes)} bytes) → {target_lang}")
+            file_type_label = "image" if is_image else "PDF"
+            print(f"  Processing {file_type_label}: {filename} ({len(pdf_bytes)} bytes) → {target_lang}")
 
             # --- Tier enforcement ---
             user_id = _get_user_id(self)
@@ -971,7 +1013,12 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
                     "scans_limit": tier_info['scans_per_month']
                 }, 429)
                 return
-            skip_translation = not tier_info['has_translation']
+            # For free tier: first scan gets full translation, rest are summary-only
+            full_scans = tier_info.get('full_scans', tier_info['scans_per_month'])
+            if scans < full_scans:
+                skip_translation = False  # Still has full scans left
+            else:
+                skip_translation = not tier_info['has_translation']
             # --- End tier enforcement ---
 
             # Claude API
@@ -980,12 +1027,12 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
                 self.send_json({"error": "ANTHROPIC_API_KEY not set. Run: export ANTHROPIC_API_KEY=sk-ant-..."}, 500)
                 return
 
-            # Strategy: Try sending PDF directly to Claude (best quality).
+            # Strategy: Try sending file directly to Claude (best quality).
             # Fall back to local text extraction if PDF is too large (>25MB).
             text = None
-            engine = "claude_pdf"
+            engine = "claude_image" if is_image else "claude_pdf"
 
-            if len(pdf_bytes) > 25 * 1024 * 1024:
+            if not is_image and len(pdf_bytes) > 25 * 1024 * 1024:
                 # Too large for direct PDF — try local extraction
                 print("  PDF too large for direct upload, trying local extraction...")
                 text, engine = extract_text_from_pdf(pdf_bytes)
@@ -996,9 +1043,9 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
 
             print("  Calling Claude API...")
             if text:
-                result, error = call_claude_api(text, api_key, target_lang=target_lang, skip_translation=skip_translation)
+                result, error = call_claude_api(text, api_key, target_lang=target_lang, skip_translation=skip_translation, media_type=file_media_type)
             else:
-                result, error = call_claude_api(None, api_key, pdf_bytes=pdf_bytes, target_lang=target_lang, skip_translation=skip_translation)
+                result, error = call_claude_api(None, api_key, pdf_bytes=pdf_bytes, target_lang=target_lang, skip_translation=skip_translation, media_type=file_media_type)
 
             if error:
                 self.send_json({"error": f"Claude API: {error}"}, 500)
@@ -1100,7 +1147,7 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
         return None
 
     def extract_file_from_multipart(self, body, boundary):
-        """Extract file bytes and filename from multipart data."""
+        """Extract file bytes, filename, and content type from multipart data."""
         boundary_bytes = boundary.encode()
         parts = body.split(b'--' + boundary_bytes)
         for part in parts:
@@ -1110,6 +1157,10 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
                 fname_match = re.search(b'filename="([^"]*)"', part)
                 if fname_match:
                     filename = fname_match.group(1).decode('utf-8', errors='replace')
+
+                # Extract content type
+                ct_match = re.search(b'Content-Type:\s*([^\r\n]+)', part)
+                file_content_type = ct_match.group(1).decode('utf-8').strip() if ct_match else None
 
                 header_end = part.find(b'\r\n\r\n')
                 if header_end == -1:
@@ -1121,9 +1172,9 @@ p{{color:#5A5A7A;font-size:16px;line-height:1.6;margin-bottom:24px}}
                 if file_data:
                     if file_data.endswith(b'\r\n'): file_data = file_data[:-2]
                     elif file_data.endswith(b'--\r\n'): file_data = file_data[:-4]
-                    return file_data, filename
+                    return file_data, filename, file_content_type
 
-        return None, None
+        return None, None, None
 
     def serve_static(self, path):
         """Serve static frontend files."""

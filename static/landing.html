@@ -90,6 +90,9 @@ a { color:#FF6B35; text-decoration:none; }
   .hero .tagline { font-size:20px; }
   .steps, .case-grid, .plans { grid-template-columns:1fr; }
   .plan.featured { order:-1; }
+  .footer-links { flex-wrap:wrap; gap:16px; }
+  .trust-logos { flex-direction:column; gap:8px; }
+  .trust-logos span:nth-child(even) { display:none; }
 }
 </style>
 </head>
@@ -101,7 +104,7 @@ a { color:#FF6B35; text-decoration:none; }
   <h1>MahZeh<span>?!</span></h1>
   <div class="subtitle">מה זה?!</div>
   <div class="tagline">Stop staring at Hebrew paperwork.<br>Scan it. Understand it. Handle it.</div>
-  <a href="/" class="cta-btn">Try Free — 3 Scans/Month</a>
+  <a href="/" class="cta-btn">Try Free — 5 Scans/Month</a>
   <div class="free-note">No credit card required</div>
   <div class="lang-bar">
     <span class="lang-pill">&#127468;&#127463; English</span>
@@ -164,11 +167,10 @@ a { color:#FF6B35; text-decoration:none; }
       <div class="price">0 <span>NIS</span></div>
       <div class="price-sub">forever</div>
       <ul>
-        <li>3 scans per month</li>
-        <li>Summary + classification</li>
-        <li>Key details + action items</li>
-        <li class="no">Full translation</li>
-        <li class="no">WhatsApp bot</li>
+        <li>1 full scan per month (with translation)</li>
+        <li>4 summary-only scans per month</li>
+        <li>Classification + key details</li>
+        <li>Action items</li>
       </ul>
       <a href="/" class="plan-btn free">Get Started</a>
     </div>
@@ -184,7 +186,6 @@ a { color:#FF6B35; text-decoration:none; }
         <li>Summary + classification</li>
         <li>Key details + action items</li>
         <li>Full page-by-page translation</li>
-        <li class="no">WhatsApp bot</li>
       </ul>
       <a href="#" id="btn-basic" class="plan-btn primary" onclick="pay('basic')">Subscribe — 149 NIS/year</a>
     </div>
@@ -199,7 +200,6 @@ a { color:#FF6B35; text-decoration:none; }
         <li>Summary + classification</li>
         <li>Key details + action items</li>
         <li>Full page-by-page translation</li>
-        <li>WhatsApp bot access</li>
       </ul>
       <a href="#" id="btn-unlimited" class="plan-btn outline" onclick="pay('unlimited')">Subscribe — 299 NIS/year</a>
     </div>
@@ -225,12 +225,12 @@ a { color:#FF6B35; text-decoration:none; }
   <div class="footer-links">
     <a href="/">Try MahZeh</a>
     <a href="#pricing">Pricing</a>
-    <a href="/privacy">Privacy Policy</a>
-    <a href="/terms">Terms of Service</a>
+    <a href="/privacy.html">Privacy Policy</a>
+    <a href="/terms.html">Terms of Service</a>
     <a href="mailto:rabbisnir@gmail.com">Contact</a>
   </div>
   <p>MahZeh?! is not a legal translation service. Always consult a professional for legal matters.</p>
-  <p style="margin-top:8px">&copy; 2025 MahZeh. All rights reserved.</p>
+  <p style="margin-top:8px">&copy; 2026 MahZeh. All rights reserved.</p>
 </div>
 
 <script>

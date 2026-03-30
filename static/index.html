@@ -132,7 +132,7 @@
     .wa-banner p{font-size:13px;opacity:.9}
     .wa-banner .wa-number{font-size:18px;font-weight:700;margin-top:6px;letter-spacing:1px}
 
-    @media(max-width:600px){.container{padding:16px}.upload-area{padding:32px 16px}.details-grid{grid-template-columns:1fr}.detail-label{border-bottom:none;padding-bottom:0}.history-grid{grid-template-columns:1fr}.wa-banner{flex-direction:column;text-align:center}}
+    @media(max-width:600px){.container{padding:16px}.upload-area{padding:32px 16px}.details-grid{grid-template-columns:1fr}.detail-label{border-bottom:none;padding-bottom:0}.history-grid{grid-template-columns:1fr}.wa-banner{flex-direction:column;text-align:center}.topbar{padding:12px 16px}.topbar h1{font-size:22px}.topbar img{height:40px !important}}
   </style>
 </head>
 <body>
@@ -167,10 +167,14 @@
     <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
       <div class="upload-icon">&#128196;</div>
       <h2>Upload a Hebrew Document</h2>
-      <p>Drop a PDF here, or click to browse</p>
+      <p>Drop a PDF here, take a photo, or click to browse</p>
       <div class="or">or</div>
-      <button class="upload-btn" onclick="event.stopPropagation(); document.getElementById('fileInput').click()">Choose File</button>
-      <input type="file" id="fileInput" accept=".pdf"/>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="upload-btn" onclick="event.stopPropagation(); document.getElementById('fileInput').click()">Choose File</button>
+        <button class="upload-btn" id="cameraBtn" onclick="event.stopPropagation(); document.getElementById('cameraInput').click()" style="background:var(--navy)">&#128247; Take Photo</button>
+      </div>
+      <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic"/>
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none"/>
       <div class="lang-picker" onclick="event.stopPropagation()">
         <style>
           .lang-picker { margin-top:16px; display:flex; align-items:center; justify-content:center; gap:8px; }
@@ -348,10 +352,30 @@ let startTime = 0;
 let serverConfig = {};
 let userTier = 'free';
 let scansUsed = 0;
-let scansLimit = 3;
+let scansLimit = 5;
 let hasTrans = false;
 let accessCode = localStorage.getItem('mahzeh_code') || '';
 let userEmail = localStorage.getItem('mahzeh_email') || '';
+
+// Cookie fallback for mobile browsers that may clear localStorage
+function setCookie(name, value, days) {
+  const d = new Date(); d.setTime(d.getTime() + days*86400000);
+  document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+}
+function getCookie(name) {
+  const v = document.cookie.match('(^|;)\\s*' + name + '=([^;]*)');
+  return v ? decodeURIComponent(v[2]) : '';
+}
+// If localStorage was cleared but cookie exists, restore it
+if (!userEmail && getCookie('mahzeh_email')) {
+  userEmail = getCookie('mahzeh_email');
+  try { localStorage.setItem('mahzeh_email', userEmail); } catch(e) {}
+}
+function saveEmail(email) {
+  userEmail = email;
+  try { localStorage.setItem('mahzeh_email', email); } catch(e) {}
+  setCookie('mahzeh_email', email, 365);
+}
 
 // ========================================
 // Init
@@ -369,8 +393,7 @@ async function init() {
   const urlParams = new URLSearchParams(window.location.search);
   const emailParam = urlParams.get('email');
   if (emailParam) {
-    userEmail = emailParam.toLowerCase().trim();
-    localStorage.setItem('mahzeh_email', userEmail);
+    saveEmail(emailParam.toLowerCase().trim());
     window.history.replaceState({}, '', '/');  // Clean URL
   }
 
@@ -484,9 +507,13 @@ const fileInput = document.getElementById('fileInput');
 ['dragleave','drop'].forEach(e => uploadArea.addEventListener(e, ev => { ev.preventDefault(); uploadArea.classList.remove('dragover'); }));
 uploadArea.addEventListener('drop', ev => {
   const f = ev.dataTransfer.files;
-  if (f.length && f[0].type === 'application/pdf') processFile(f[0]);
+  if (f.length) {
+    const type = f[0].type;
+    if (type === 'application/pdf' || type.startsWith('image/')) processFile(f[0]);
+  }
 });
 fileInput.addEventListener('change', ev => { if(ev.target.files.length) processFile(ev.target.files[0]); });
+document.getElementById('cameraInput').addEventListener('change', ev => { if(ev.target.files.length) processFile(ev.target.files[0]); });
 
 async function processFile(file) {
   startTime = Date.now();
@@ -862,8 +889,7 @@ async function loginWithEmail() {
     msg.textContent = 'Please enter a valid email';
     return;
   }
-  userEmail = email;
-  localStorage.setItem('mahzeh_email', email);
+  saveEmail(email);
   await loadTierStatus();
   const msg = document.getElementById('codeMessage');
   msg.style.display = 'block';
