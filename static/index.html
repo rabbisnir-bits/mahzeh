@@ -332,7 +332,7 @@
 // ========================================
 // Config & State
 // ========================================
-let supabase = null;
+let supabaseClient = null;
 let currentUser = null;
 let startTime = 0;
 let serverConfig = {};
@@ -373,8 +373,8 @@ async function init() {
   // Init Supabase if configured and SDK loaded
   if (serverConfig.supabase_configured && window.supabase && window.SUPABASE_URL) {
     try {
-      supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
-      const { data: { session } } = await supabase.auth.getSession();
+      supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+      const { data: { session } } = await supabaseClient.auth.getSession();
       if (session) {
         currentUser = session.user;
         updateUserUI();
@@ -409,12 +409,12 @@ function skipAuth() {
 // Auth
 // ========================================
 async function signIn() {
-  if (!supabase) {
+  if (!supabaseClient) {
     // If Supabase isn't initialized, just skip auth
     showMainApp();
     return;
   }
-  const { data, error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabaseClient.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: window.location.origin }
   });
@@ -422,7 +422,7 @@ async function signIn() {
 }
 
 async function signOut() {
-  if (supabase) await supabase.auth.signOut();
+  if (supabaseClient) await supabaseClient.auth.signOut();
   currentUser = null;
   updateUserUI();
   document.getElementById('authGate').style.display = 'block';
@@ -447,9 +447,9 @@ function updateUserUI() {
 }
 
 function getAuthToken() {
-  if (!supabase) return null;
+  if (!supabaseClient) return null;
   try {
-    const session = supabase.auth.session?.();
+    const session = supabaseClient.auth.session?.();
     return session?.access_token || null;
   } catch(e) { return null; }
 }
@@ -503,9 +503,9 @@ async function processFile(file) {
     if (userEmail) headers['X-User-Email'] = userEmail;
     else if (accessCode) headers['X-Access-Code'] = accessCode;
     // Add auth token if available
-    if (supabase) {
+    if (supabaseClient) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
         if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
       } catch(e) {}
     }
@@ -713,7 +713,7 @@ async function loadHistory() {
   section.style.display = 'block';
 
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabaseClient.auth.getSession();
     if (!session) return;
 
     const resp = await fetch('/api/documents', { headers: { 'Authorization': `Bearer ${session.access_token}` } });
