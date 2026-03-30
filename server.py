@@ -1267,7 +1267,7 @@ if __name__ == '__main__':
         print("  ℹ  No Twilio config — WhatsApp bot disabled")
     print()
 
-    server = http.server.HTTPServer(('0.0.0.0', c['PORT']), MahZehHandler)
+    server = http.server.ThreadingHTTPServer(('0.0.0.0', c['PORT']), MahZehHandler)
     print(f"  Listening on port {c['PORT']}...\n")
 
     try:
