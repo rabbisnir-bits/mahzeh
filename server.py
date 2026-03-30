@@ -791,9 +791,12 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
         """Serve static frontend files."""
         if path == '/' or path == '': path = '/index.html'
         file_path = os.path.join(APP_DIR, 'static', path.lstrip('/'))
+        # Also check root directory (for logo.png etc)
+        if not os.path.isfile(file_path):
+            file_path = os.path.join(APP_DIR, path.lstrip('/'))
         if os.path.isfile(file_path):
             self.send_response(200)
-            ct = 'text/html' if path.endswith('.html') else 'application/javascript' if path.endswith('.js') else 'text/css' if path.endswith('.css') else 'application/octet-stream'
+            ct = 'text/html' if path.endswith('.html') else 'application/javascript' if path.endswith('.js') else 'text/css' if path.endswith('.css') else 'image/png' if path.endswith('.png') else 'image/jpeg' if path.endswith('.jpg') else 'application/octet-stream'
             self.send_header('Content-Type', f'{ct}; charset=utf-8')
             self._cors_headers()
             self.end_headers()

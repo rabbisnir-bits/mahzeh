@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MahZeh?! — Stop staring at Hebrew paperwork</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif; color:#1a1a2e; background:#fff; }
+a { color:#FF6B35; text-decoration:none; }
+
+/* Hero */
+.hero { background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%); color:white; padding:60px 20px 80px; text-align:center; position:relative; overflow:hidden; }
+.hero::after { content:''; position:absolute; bottom:-2px; left:0; right:0; height:60px; background:white; clip-path:ellipse(55% 100% at 50% 100%); }
+.hero img { height:80px; margin-bottom:16px; }
+.hero h1 { font-size:48px; font-weight:800; margin-bottom:8px; }
+.hero h1 span { color:#FF6B35; }
+.hero .subtitle { font-size:20px; color:#a0b4d0; margin-bottom:8px; }
+.hero .tagline { font-size:28px; font-weight:600; margin-bottom:32px; line-height:1.4; }
+.hero .cta-btn { display:inline-block; background:#FF6B35; color:white; padding:16px 40px; border-radius:30px; font-size:18px; font-weight:700; transition:all .2s; }
+.hero .cta-btn:hover { background:#e85d26; transform:translateY(-2px); box-shadow:0 8px 25px rgba(255,107,53,.4); }
+.hero .free-note { margin-top:12px; font-size:14px; color:#8899aa; }
+
+/* Languages bar */
+.lang-bar { display:flex; justify-content:center; gap:12px; margin-top:24px; flex-wrap:wrap; }
+.lang-pill { background:rgba(255,255,255,.1); padding:6px 14px; border-radius:20px; font-size:13px; color:#c0d0e0; }
+
+/* How it works */
+.how { padding:80px 20px; max-width:900px; margin:0 auto; text-align:center; }
+.how h2 { font-size:36px; font-weight:800; margin-bottom:48px; }
+.steps { display:grid; grid-template-columns:repeat(3,1fr); gap:32px; }
+.step { padding:24px; }
+.step-num { width:48px; height:48px; background:#FF6B35; color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:800; margin:0 auto 16px; }
+.step h3 { font-size:18px; margin-bottom:8px; }
+.step p { font-size:14px; color:#666; line-height:1.6; }
+
+/* Use cases */
+.cases { background:#f8f9fa; padding:80px 20px; }
+.cases-inner { max-width:900px; margin:0 auto; text-align:center; }
+.cases h2 { font-size:36px; font-weight:800; margin-bottom:16px; }
+.cases .sub { font-size:16px; color:#666; margin-bottom:40px; }
+.case-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+.case { background:white; border-radius:12px; padding:20px; text-align:left; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.case-icon { font-size:28px; margin-bottom:8px; }
+.case h4 { font-size:15px; font-weight:700; margin-bottom:4px; }
+.case p { font-size:13px; color:#888; }
+
+/* Pricing */
+.pricing { padding:80px 20px; max-width:1000px; margin:0 auto; text-align:center; }
+.pricing h2 { font-size:36px; font-weight:800; margin-bottom:8px; }
+.pricing .sub { font-size:16px; color:#666; margin-bottom:48px; }
+.plans { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; align-items:start; }
+.plan { border:2px solid #e8e8e8; border-radius:16px; padding:32px 24px; position:relative; transition:all .2s; }
+.plan:hover { border-color:#FF6B35; box-shadow:0 8px 30px rgba(255,107,53,.12); }
+.plan.featured { border-color:#FF6B35; box-shadow:0 8px 30px rgba(255,107,53,.15); }
+.plan-badge { position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:#FF6B35; color:white; padding:4px 16px; border-radius:20px; font-size:12px; font-weight:700; }
+.plan h3 { font-size:22px; font-weight:700; margin-bottom:4px; }
+.plan .plan-heb { font-size:14px; color:#999; margin-bottom:16px; }
+.plan .price { font-size:42px; font-weight:800; color:#1a1a2e; }
+.plan .price span { font-size:16px; font-weight:400; color:#888; }
+.plan .price-sub { font-size:13px; color:#999; margin-bottom:20px; }
+.plan ul { list-style:none; text-align:left; margin-bottom:24px; }
+.plan ul li { padding:6px 0; font-size:14px; color:#555; }
+.plan ul li::before { content:'\2713'; color:#FF6B35; font-weight:700; margin-right:8px; }
+.plan ul li.no::before { content:'\2717'; color:#ccc; }
+.plan ul li.no { color:#bbb; }
+.plan-btn { display:block; width:100%; padding:14px; border:none; border-radius:10px; font-size:16px; font-weight:700; cursor:pointer; transition:all .2s; }
+.plan-btn.free { background:#f0f0f0; color:#555; }
+.plan-btn.free:hover { background:#e0e0e0; }
+.plan-btn.primary { background:#FF6B35; color:white; }
+.plan-btn.primary:hover { background:#e85d26; }
+.plan-btn.outline { background:white; color:#FF6B35; border:2px solid #FF6B35; }
+.plan-btn.outline:hover { background:#fff5f0; }
+
+/* Testimonial / Trust */
+.trust { background:#1a1a2e; color:white; padding:60px 20px; text-align:center; }
+.trust h2 { font-size:28px; margin-bottom:24px; }
+.trust-logos { display:flex; justify-content:center; gap:32px; flex-wrap:wrap; opacity:.6; font-size:14px; color:#8899aa; }
+
+/* Footer */
+.footer { padding:40px 20px; text-align:center; }
+.footer-links { display:flex; justify-content:center; gap:24px; margin-bottom:16px; }
+.footer-links a { color:#888; font-size:14px; }
+.footer-links a:hover { color:#FF6B35; }
+.footer p { font-size:13px; color:#bbb; }
+
+/* Mobile */
+@media(max-width:768px) {
+  .hero h1 { font-size:32px; }
+  .hero .tagline { font-size:20px; }
+  .steps, .case-grid, .plans { grid-template-columns:1fr; }
+  .plan.featured { order:-1; }
+}
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <img src="/logo.png" alt="MahZeh?!">
+  <h1>MahZeh<span>?!</span></h1>
+  <div class="subtitle">מה זה?!</div>
+  <div class="tagline">Stop staring at Hebrew paperwork.<br>Scan it. Understand it. Handle it.</div>
+  <a href="/" class="cta-btn">Try Free — 3 Scans/Month</a>
+  <div class="free-note">No credit card required</div>
+  <div class="lang-bar">
+    <span class="lang-pill">&#127468;&#127463; English</span>
+    <span class="lang-pill">&#127467;&#127479; Francais</span>
+    <span class="lang-pill">&#127466;&#127480; Espanol</span>
+    <span class="lang-pill">&#127479;&#127482; Русский</span>
+    <span class="lang-pill">&#127466;&#127481; አማርኛ</span>
+    <span class="lang-pill">&#127480;&#127462; العربية</span>
+    <span class="lang-pill">&#127463;&#127479; Portugues</span>
+  </div>
+</div>
+
+<!-- How it works -->
+<div class="how">
+  <h2>How It Works</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Upload or Scan</h3>
+      <p>Take a photo or upload any Hebrew document — government letters, bank notices, legal contracts, medical forms.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>AI Reads It</h3>
+      <p>Our AI reads every word of Hebrew, classifies the document, and produces a full translation in your language.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Know What To Do</h3>
+      <p>Get a clear summary, key details (dates, amounts, IDs), and a list of exactly what actions you need to take.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Use cases -->
+<div class="cases">
+  <div class="cases-inner">
+    <h2>Works With Any Hebrew Document</h2>
+    <p class="sub">Government, medical, legal, financial — if it's in Hebrew, MahZeh translates it.</p>
+    <div class="case-grid">
+      <div class="case"><div class="case-icon">&#127963;</div><h4>Government</h4><p>Arnona bills, municipal notices, Bituach Leumi letters</p></div>
+      <div class="case"><div class="case-icon">&#127973;</div><h4>Medical</h4><p>Kupat Cholim referrals, prescriptions, test results</p></div>
+      <div class="case"><div class="case-icon">&#128182;</div><h4>Financial</h4><p>Bank statements, mortgage docs, tax notices</p></div>
+      <div class="case"><div class="case-icon">&#128220;</div><h4>Legal</h4><p>Contracts, power of attorney, court documents</p></div>
+      <div class="case"><div class="case-icon">&#127968;</div><h4>Real Estate</h4><p>Tabu records, building permits, cooperation agreements</p></div>
+      <div class="case"><div class="case-icon">&#128188;</div><h4>Employment</h4><p>Work contracts, pay slips, termination letters</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- Pricing -->
+<div class="pricing" id="pricing">
+  <h2>Simple Pricing</h2>
+  <p class="sub">Start free. Upgrade when you need more.</p>
+  <div class="plans">
+    <!-- Free -->
+    <div class="plan">
+      <h3>Free</h3>
+      <div class="plan-heb">חינם</div>
+      <div class="price">0 <span>NIS</span></div>
+      <div class="price-sub">forever</div>
+      <ul>
+        <li>3 scans per month</li>
+        <li>Summary + classification</li>
+        <li>Key details + action items</li>
+        <li class="no">Full translation</li>
+        <li class="no">WhatsApp bot</li>
+      </ul>
+      <a href="/" class="plan-btn free">Get Started</a>
+    </div>
+    <!-- Basic -->
+    <div class="plan featured">
+      <div class="plan-badge">Most Popular</div>
+      <h3>Basic</h3>
+      <div class="plan-heb">בסיסי</div>
+      <div class="price">149 <span>NIS/year</span></div>
+      <div class="price-sub">12.4 NIS/month — less than a coffee</div>
+      <ul>
+        <li>20 scans per month</li>
+        <li>Summary + classification</li>
+        <li>Key details + action items</li>
+        <li>Full page-by-page translation</li>
+        <li class="no">WhatsApp bot</li>
+      </ul>
+      <a href="#" id="btn-basic" class="plan-btn primary" onclick="pay('basic')">Subscribe — 149 NIS/year</a>
+    </div>
+    <!-- Unlimited -->
+    <div class="plan">
+      <h3>Unlimited</h3>
+      <div class="plan-heb">ללא הגבלה</div>
+      <div class="price">299 <span>NIS/year</span></div>
+      <div class="price-sub">24.9 NIS/month</div>
+      <ul>
+        <li>Unlimited scans</li>
+        <li>Summary + classification</li>
+        <li>Key details + action items</li>
+        <li>Full page-by-page translation</li>
+        <li>WhatsApp bot access</li>
+      </ul>
+      <a href="#" id="btn-unlimited" class="plan-btn outline" onclick="pay('unlimited')">Subscribe — 299 NIS/year</a>
+    </div>
+  </div>
+</div>
+
+<!-- Trust -->
+<div class="trust">
+  <h2>Trusted by olim across Israel</h2>
+  <div class="trust-logos">
+    <span>Built for Nefesh B'Nefesh olim</span>
+    <span>&#183;</span>
+    <span>French-speaking community</span>
+    <span>&#183;</span>
+    <span>Russian-speaking community</span>
+    <span>&#183;</span>
+    <span>Ethiopian community</span>
+  </div>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <div class="footer-links">
+    <a href="/">Try MahZeh</a>
+    <a href="#pricing">Pricing</a>
+    <a href="/privacy">Privacy Policy</a>
+    <a href="/terms">Terms of Service</a>
+    <a href="mailto:rabbisnir@gmail.com">Contact</a>
+  </div>
+  <p>MahZeh?! is not a legal translation service. Always consult a professional for legal matters.</p>
+  <p style="margin-top:8px">&copy; 2025 MahZeh. All rights reserved.</p>
+</div>
+
+<script>
+function pay(plan) {
+  // CardCom payment page with both plan options
+  window.location.href = 'https://secure.cardcom.solutions/EA/EA5/Poflowb10GDnRv6vhp7ng/PaymentSP';
+}
+</script>
+</body>
+</html>
