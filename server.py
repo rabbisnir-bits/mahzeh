@@ -271,7 +271,12 @@ CRITICAL:
 - ID numbers must be copied exactly as printed.
 - Do not invent or guess. If unclear, write "[unclear]".
 
-Respond ONLY with valid JSON."""
+Respond ONLY with valid JSON. CRITICAL JSON RULES:
+- All string values must have newlines escaped as \\n, not literal newlines
+- All double quotes inside strings must be escaped as \\"
+- No trailing commas
+- No comments
+- The response must parse with json.loads() in Python"""
 
 
 # ---- PASS 2: Translate (dedicated, thorough) ----
@@ -388,10 +393,25 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English',
             if raw.startswith('```'): raw = raw[3:]
             if raw.endswith('```'): raw = raw[:-3]
             raw = raw.strip()
-            # Try to fix common JSON issues: trailing commas
-            raw = re.sub(r',\s*}', '}', raw)
-            raw = re.sub(r',\s*]', ']', raw)
-            result = json.loads(raw)
+            # Try to fix common JSON issues
+            raw = re.sub(r',\s*}', '}', raw)  # trailing commas before }
+            raw = re.sub(r',\s*]', ']', raw)  # trailing commas before ]
+            raw = raw.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')  # escape newlines in strings
+            # Try parsing as-is first
+            try:
+                result = json.loads(raw)
+            except json.JSONDecodeError:
+                # Undo the newline escaping and try a different approach
+                raw2 = raw.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
+                # Try to extract just the JSON object
+                brace_start = raw2.find('{')
+                brace_end = raw2.rfind('}')
+                if brace_start != -1 and brace_end != -1:
+                    raw2 = raw2[brace_start:brace_end+1]
+                    # Re-apply fixes
+                    raw2 = re.sub(r',\s*}', '}', raw2)
+                    raw2 = re.sub(r',\s*]', ']', raw2)
+                result = json.loads(raw2)
             break
         except json.JSONDecodeError as e:
             last_error = f"Classification returned invalid JSON (attempt {attempt+1}): {str(e)[:100]}"
