@@ -395,8 +395,8 @@ async function init() {
     }
   }
 
-  // Show WhatsApp banner if configured
-  if (serverConfig.whatsapp_configured) {
+  // WhatsApp banner disabled for now
+  if (false && serverConfig.whatsapp_configured) {
     document.getElementById('waBanner').style.display = 'flex';
   }
 
@@ -770,7 +770,8 @@ function resetUI() {
   document.getElementById('errorBox').classList.remove('active');
   document.getElementById('processingState').classList.remove('active');
   uploadArea.style.display = 'block';
-  if(serverConfig.whatsapp_configured) document.getElementById('waBanner').style.display = 'flex';
+  // WhatsApp banner disabled for now
+  // if(serverConfig.whatsapp_configured) document.getElementById('waBanner').style.display = 'flex';
   fileInput.value = '';
   if(currentUser) {
     document.getElementById('historySection').style.display = 'block';
