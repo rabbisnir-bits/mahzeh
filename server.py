@@ -396,22 +396,13 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English',
             # Try to fix common JSON issues
             raw = re.sub(r',\s*}', '}', raw)  # trailing commas before }
             raw = re.sub(r',\s*]', ']', raw)  # trailing commas before ]
-            raw = raw.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')  # escape newlines in strings
-            # Try parsing as-is first
-            try:
-                result = json.loads(raw)
-            except json.JSONDecodeError:
-                # Undo the newline escaping and try a different approach
-                raw2 = raw.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t')
-                # Try to extract just the JSON object
-                brace_start = raw2.find('{')
-                brace_end = raw2.rfind('}')
-                if brace_start != -1 and brace_end != -1:
-                    raw2 = raw2[brace_start:brace_end+1]
-                    # Re-apply fixes
-                    raw2 = re.sub(r',\s*}', '}', raw2)
-                    raw2 = re.sub(r',\s*]', ']', raw2)
-                result = json.loads(raw2)
+            # Extract just the JSON object if there's extra text
+            brace_start = raw.find('{')
+            brace_end = raw.rfind('}')
+            if brace_start != -1 and brace_end != -1:
+                raw = raw[brace_start:brace_end+1]
+            # Parse with strict=False to allow control characters (newlines etc) in strings
+            result = json.loads(raw, strict=False)
             break
         except json.JSONDecodeError as e:
             last_error = f"Classification returned invalid JSON (attempt {attempt+1}): {str(e)[:100]}"
