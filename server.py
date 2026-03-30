@@ -171,9 +171,9 @@ Respond ONLY with valid JSON."""
 
 
 # ---- PASS 2: Translate (dedicated, thorough) ----
-TRANSLATE_PROMPT = """You are a professional Hebrew-to-English legal/document translator. Your translations are used by immigrants who depend on accuracy to understand their rights and obligations. A wrong name, number, or term could cost someone money or legal trouble.
+TRANSLATE_PROMPT = """You are a professional Hebrew document translator. Your translations are used by immigrants who depend on accuracy to understand their rights and obligations. A wrong name, number, or term could cost someone money or legal trouble.
 
-Translate this Hebrew document into clear, accurate English. Follow these rules:
+Translate this Hebrew document into the TARGET LANGUAGE specified in the user's message. If no target language is specified, translate into English. Follow these rules:
 
 1. TRANSLATE EVERY PAGE, EVERY CLAUSE, EVERY LINE. Do not skip or summarize.
 2. Preserve the document's structure: headers, numbered clauses (1, 1.1, 1.2, etc.), sections, signature blocks.
@@ -246,13 +246,15 @@ def _call_claude(system_prompt, user_content, api_key, max_tokens=8000):
         return data.get('content', [{}])[0].get('text', '').strip()
 
 
-def call_claude_api(hebrew_text, api_key, pdf_bytes=None):
+def call_claude_api(hebrew_text, api_key, pdf_bytes=None, target_lang='English'):
     """Two-pass document analysis: Pass 1 reads PDF + classifies, Pass 2 translates extracted text."""
 
+    lang_instruction = f"Translate into {target_lang}." if target_lang != 'English' else ""
+
     if pdf_bytes:
-        content_classify = _build_pdf_content(pdf_bytes, "Read this Hebrew document. Extract ALL Hebrew text and classify it. Return JSON only.")
+        content_classify = _build_pdf_content(pdf_bytes, f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Write the summary and action items in {target_lang}. Return JSON only.")
     else:
-        content_classify = f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Return JSON only.\n\n{hebrew_text}"
+        content_classify = f"Read this Hebrew document. Extract ALL Hebrew text and classify it. Write the summary and action items in {target_lang}. Return JSON only.\n\n{hebrew_text}"
 
     # PASS 1: Read PDF + extract Hebrew text + classify
     print("  Pass 1: Reading PDF and extracting Hebrew text...")
@@ -284,16 +286,14 @@ def call_claude_api(hebrew_text, api_key, pdf_bytes=None):
         print("  WARNING: No Hebrew text extracted, falling back to PDF for translation")
 
     # PASS 2: Translate the EXTRACTED TEXT (not the PDF again)
-    print("  Pass 2: Translating Hebrew text (this takes a minute)...")
+    print(f"  Pass 2: Translating Hebrew text into {target_lang} (this takes a minute)...")
     try:
         if extracted_hebrew:
-            # Send clean text — much better for translation than PDF images
-            translate_content = f"Translate this Hebrew document into English. Every page, every clause, every line.\n\n{extracted_hebrew}"
+            translate_content = f"Translate this Hebrew document into {target_lang}. Every page, every clause, every line.\n\n{extracted_hebrew}"
         elif pdf_bytes:
-            # Fallback: send PDF if text extraction failed
-            translate_content = _build_pdf_content(pdf_bytes, "Translate this entire Hebrew document into English. Every page, every clause.")
+            translate_content = _build_pdf_content(pdf_bytes, f"Translate this entire Hebrew document into {target_lang}. Every page, every clause.")
         else:
-            translate_content = f"Translate this entire Hebrew document into English. Every page, every clause.\n\n{hebrew_text}"
+            translate_content = f"Translate this entire Hebrew document into {target_lang}. Every page, every clause.\n\n{hebrew_text}"
 
         translation = _call_claude(TRANSLATE_PROMPT, translate_content, api_key, max_tokens=16000)
         result['translation'] = translation
@@ -641,7 +641,9 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"error": "No PDF file found"}, 400)
                 return
 
-            print(f"  Processing: {filename} ({len(pdf_bytes)} bytes)")
+            # Extract target language from form
+            target_lang = self.extract_field_from_multipart(body, boundary, 'language') or 'English'
+            print(f"  Processing: {filename} ({len(pdf_bytes)} bytes) → {target_lang}")
 
             # Claude API
             api_key = CONFIG['ANTHROPIC_API_KEY']
@@ -665,9 +667,9 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
 
             print("  Calling Claude API...")
             if text:
-                result, error = call_claude_api(text, api_key)
+                result, error = call_claude_api(text, api_key, target_lang=target_lang)
             else:
-                result, error = call_claude_api(None, api_key, pdf_bytes=pdf_bytes)
+                result, error = call_claude_api(None, api_key, pdf_bytes=pdf_bytes, target_lang=target_lang)
 
             if error:
                 self.send_json({"error": f"Claude API: {error}"}, 500)
@@ -740,6 +742,24 @@ class MahZehHandler(http.server.SimpleHTTPRequestHandler):
             traceback.print_exc()
             self.send_response(500)
             self.end_headers()
+
+    def extract_field_from_multipart(self, body, boundary, field_name):
+        """Extract a text field value from multipart data."""
+        boundary_bytes = boundary.encode()
+        parts = body.split(b'--' + boundary_bytes)
+        for part in parts:
+            if field_name.encode() in part and b'filename=' not in part:
+                name_match = re.search(b'name="([^"]*)"', part)
+                if name_match and name_match.group(1).decode() == field_name:
+                    header_end = part.find(b'\r\n\r\n')
+                    if header_end == -1:
+                        header_end = part.find(b'\n\n')
+                        value = part[header_end + 2:] if header_end != -1 else b''
+                    else:
+                        value = part[header_end + 4:]
+                    value = value.strip().rstrip(b'-').strip()
+                    return value.decode('utf-8', errors='replace')
+        return None
 
     def extract_file_from_multipart(self, body, boundary):
         """Extract file bytes and filename from multipart data."""

@@ -163,6 +163,26 @@
       <div class="or">or</div>
       <button class="upload-btn" onclick="event.stopPropagation(); document.getElementById('fileInput').click()">Choose File</button>
       <input type="file" id="fileInput" accept=".pdf"/>
+      <div class="lang-picker" onclick="event.stopPropagation()">
+        <style>
+          .lang-picker { margin-top:16px; display:flex; align-items:center; justify-content:center; gap:8px; }
+          .lang-picker label { font-size:13px; color:#888; }
+          .lang-flags { display:flex; gap:6px; }
+          .lang-flag { width:36px; height:36px; border-radius:50%; border:2px solid #ddd; cursor:pointer; font-size:20px; display:flex; align-items:center; justify-content:center; transition:all .2s; background:white; }
+          .lang-flag:hover { border-color:var(--primary); transform:scale(1.1); }
+          .lang-flag.selected { border-color:var(--primary); box-shadow:0 0 0 2px var(--primary); background:#fff5f0; }
+        </style>
+        <label>Translate to:</label>
+        <div class="lang-flags">
+          <div class="lang-flag selected" data-lang="English" title="English" onclick="selectLang(this)">&#127468;&#127463;</div>
+          <div class="lang-flag" data-lang="French" title="French" onclick="selectLang(this)">&#127467;&#127479;</div>
+          <div class="lang-flag" data-lang="Spanish" title="Spanish" onclick="selectLang(this)">&#127466;&#127480;</div>
+          <div class="lang-flag" data-lang="Russian" title="Russian" onclick="selectLang(this)">&#127479;&#127482;</div>
+          <div class="lang-flag" data-lang="Amharic" title="Amharic" onclick="selectLang(this)">&#127466;&#127481;</div>
+          <div class="lang-flag" data-lang="Arabic" title="Arabic" onclick="selectLang(this)">&#127480;&#127462;</div>
+          <div class="lang-flag" data-lang="Portuguese" title="Portuguese" onclick="selectLang(this)">&#127463;&#127479;</div>
+        </div>
+      </div>
     </div>
 
     <!-- WhatsApp Banner -->
@@ -384,6 +404,16 @@ function getAuthToken() {
 }
 
 // ========================================
+// Language Selection
+// ========================================
+let selectedLang = 'English';
+function selectLang(el) {
+  document.querySelectorAll('.lang-flag').forEach(f => f.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedLang = el.dataset.lang;
+}
+
+// ========================================
 // File Upload
 // ========================================
 const uploadArea = document.getElementById('uploadArea');
@@ -411,6 +441,7 @@ async function processFile(file) {
 
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('language', selectedLang);
 
   try {
     setTimeout(() => updateStep(1, 'Step 1: Classifying...', 'Claude is reading the Hebrew and identifying the document type'), 3000);
